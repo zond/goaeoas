@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 
 	"github.com/gorilla/mux"
 )
@@ -146,6 +147,8 @@ type Link struct {
 	Route       string
 	RouteParams []string
 	QueryParams url.Values
+	Method      string
+	Type        reflect.Type
 }
 
 func (l *Link) Resolve() (string, error) {
@@ -164,18 +167,79 @@ func (l *Link) Resolve() (string, error) {
 	return u.String(), nil
 }
 
+func Copy(dest interface{}, r io.Reader, method string) error {
+	decoded := map[string]json.RawMessage{}
+	if err := json.NewDecoder(r).Decode(&decoded); err != nil {
+		return err
+	}
+	val := reflect.ValueOf(dest)
+	if val.Kind() != reflect.Ptr {
+		return fmt.Errorf("can only copy to pointer to struct")
+	}
+	val = val.Elem()
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("can only copy to pointer to struct")
+	}
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		methods := strings.Split(field.Tag.Get("methods"), ",")
+		found := false
+		for j := 0; j < len(methods); j++ {
+			if methods[j] == method {
+				found = true
+				break
+			}
+		}
+		if found {
+			if raw, found := decoded[field.Name]; found {
+				if err := json.Unmarshal(raw, val.Field(i).Addr().Interface()); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (l Link) MarshalJSON() ([]byte, error) {
 	u, err := l.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(struct {
-		Rel string
-		URL string
+	method := l.Method
+	if method == "" {
+		method = "GET"
+	}
+	generated := struct {
+		Rel    string
+		URL    string
+		Method string
+		Type   map[string]interface{} `json:",omitempty"`
 	}{
-		Rel: l.Rel,
-		URL: u,
-	})
+		Rel:    l.Rel,
+		URL:    u,
+		Method: method,
+	}
+	if l.Type != nil {
+		typ := map[string]interface{}{}
+		for i := 0; i < l.Type.NumField(); i++ {
+			field := l.Type.Field(i)
+			methods := strings.Split(field.Tag.Get("methods"), ",")
+			found := false
+			for j := 0; j < len(methods); j++ {
+				if methods[j] == method {
+					found = true
+					break
+				}
+			}
+			if found {
+				typ[field.Name] = field.Type.Name()
+			}
+		}
+		generated.Type = typ
+	}
+	return json.Marshal(generated)
 }
 
 type List []Content
@@ -248,14 +312,16 @@ func (i Item) HTMLNode() (*Node, error) {
 	} else {
 		titleNode.AddEl("a", "href", selfLink).AddText(i.Name)
 	}
-	descNode := itemNode.AddEl("section")
-	descNode.AddEl("header").AddText("Description")
-	for _, part := range i.Desc {
-		if len(part) > 0 {
-			articleNode := descNode.AddEl("article")
-			articleNode.AddEl("header").AddText(part[0])
-			for _, paragraph := range part[1:] {
-				articleNode.AddEl("p").AddText(paragraph)
+	if len(i.Desc) > 0 {
+		descNode := itemNode.AddEl("section")
+		descNode.AddEl("header").AddText("Description")
+		for _, part := range i.Desc {
+			if len(part) > 0 {
+				articleNode := descNode.AddEl("article")
+				articleNode.AddEl("header").AddText(part[0])
+				for _, paragraph := range part[1:] {
+					articleNode.AddEl("p").AddText(paragraph)
+				}
 			}
 		}
 	}
@@ -321,14 +387,18 @@ func (r *Resource) Route(meth Method) string {
 func (r *Resource) Link(rel string, meth Method, id interface{}) Link {
 	if meth == Create {
 		return Link{
-			Rel:   rel,
-			Route: r.Route(meth),
+			Rel:    rel,
+			Route:  r.Route(meth),
+			Method: meth.HTTPMethod(),
+			Type:   r.rType,
 		}
 	} else {
 		return Link{
 			Rel:         rel,
 			Route:       r.Route(meth),
 			RouteParams: []string{"id", fmt.Sprint(id)},
+			Method:      meth.HTTPMethod(),
+			Type:        r.rType,
 		}
 	}
 }
