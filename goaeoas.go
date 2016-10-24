@@ -11,7 +11,6 @@ import (
 	"reflect"
 
 	"github.com/gorilla/mux"
-	"golang.org/x/net/html"
 )
 
 var (
@@ -127,8 +126,7 @@ func (r *responseWriter) SetContent(c Content) {
 }
 
 type Content interface {
-	RenderJSON(io.Writer) error
-	RenderHTML(io.Writer) error
+	HTMLNode() (*Node, error)
 }
 
 type Itemer interface {
@@ -180,29 +178,7 @@ func (l Link) MarshalJSON() ([]byte, error) {
 	})
 }
 
-type Map map[string]Item
-
-func (m Map) RenderJSON(w io.Writer) error {
-	return json.NewEncoder(w).Encode(m)
-}
-
-func (m Map) RenderHTML(w io.Writer) error {
-	if _, err := fmt.Fprint(w, "<dl class='map'>"); err != nil {
-		return err
-	}
-	for k, v := range m {
-		if _, err := fmt.Fprintf(w, "<dt>%s</dt><dd>", k); err != nil {
-			return err
-		}
-		if err := v.RenderHTML(w); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintf(w, "</dd>", k); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+type List []Content
 
 type Item struct {
 	Properties interface{}
@@ -250,55 +226,14 @@ func (i Item) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (i Item) RenderJSON(w io.Writer) error {
-	return json.NewEncoder(w).Encode(i)
-}
-
-type Node struct {
-	*html.Node
-}
-
-func NewEl(s string) *Node {
-	return &Node{
-		&html.Node{
-			Type: html.ElementNode,
-			Data: s,
-		},
-	}
-}
-
-func (n *Node) AddText(s string) *Node {
-	textNode := &html.Node{
-		Type: html.TextNode,
-		Data: s,
-	}
-	n.Node.AppendChild(textNode)
-	return &Node{textNode}
-}
-
-func (n *Node) AddEl(s string, attrs ...string) *Node {
-	elNode := &html.Node{
-		Type: html.ElementNode,
-		Data: s,
-	}
-	for i := 0; i < len(attrs); i += 2 {
-		elNode.Attr = append(elNode.Attr, html.Attribute{
-			Key: attrs[i],
-			Val: attrs[i+1],
-		})
-	}
-	n.Node.AppendChild(elNode)
-	return &Node{elNode}
-}
-
-func (i Item) RenderHTML(w io.Writer) error {
+func (i Item) HTMLNode() (*Node, error) {
 	selfLink := ""
 	restLinks := []Link{}
 	for _, link := range i.Links {
 		if link.Rel == "self" {
 			u, err := link.Resolve()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			selfLink = u
 		} else {
@@ -326,23 +261,34 @@ func (i Item) RenderHTML(w io.Writer) error {
 	}
 	propNode := itemNode.AddEl("section")
 	propNode.AddEl("header").AddText("Properties")
-	preNode := propNode.AddEl("article").AddEl("pre")
-	pretty, err := json.MarshalIndent(i.Properties, "  ", "  ")
-	if err != nil {
-		return err
+	if list, ok := i.Properties.(List); ok {
+		listNode := propNode.AddEl("ul")
+		for _, item := range list {
+			itemNode, err := item.HTMLNode()
+			if err != nil {
+				return nil, err
+			}
+			listNode.AddEl("ul").AddNode(itemNode)
+		}
+	} else {
+		preNode := propNode.AddEl("article").AddEl("pre")
+		pretty, err := json.MarshalIndent(i.Properties, "  ", "  ")
+		if err != nil {
+			return nil, err
+		}
+		preNode.AddText(string(pretty))
 	}
-	preNode.AddText(string(pretty))
 	if len(restLinks) > 0 {
 		navNode := itemNode.AddEl("nav")
 		for _, link := range restLinks {
 			u, err := link.Resolve()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			navNode.AddEl("a", "href", u).AddText(link.Rel)
 		}
 	}
-	return html.Render(w, itemNode.Node)
+	return itemNode, nil
 }
 
 type Resource struct {
@@ -373,10 +319,17 @@ func (r *Resource) Route(meth Method) string {
 }
 
 func (r *Resource) Link(rel string, meth Method, id interface{}) Link {
-	return Link{
-		Rel:         rel,
-		Route:       r.Route(meth),
-		RouteParams: []string{"id", fmt.Sprint(id)},
+	if meth == Create {
+		return Link{
+			Rel:   rel,
+			Route: r.Route(meth),
+		}
+	} else {
+		return Link{
+			Rel:         rel,
+			Route:       r.Route(meth),
+			RouteParams: []string{"id", fmt.Sprint(id)},
+		}
 	}
 }
 
@@ -529,9 +482,12 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		if w.content != nil {
 			renderF := map[string]func(io.Writer) error{
 				"text/html": func(httpW io.Writer) error {
-					if _, err := fmt.Fprint(httpW, `<html>
-<head>
-<style>
+					contentNode, err := w.content.HTMLNode()
+					if err != nil {
+						return err
+					}
+					htmlNode := NewEl("html")
+					htmlNode.AddEl("head").AddEl("style").AddText(`
 section {
 	border-style: outset;
 	padding: 5pt;
@@ -548,22 +504,20 @@ section > article {
 section > article > header {
 	font-weight: bold;
 }
-</style>
-</head>
-<body>
-`); err != nil {
-						return err
-					}
-					if err := w.content.RenderHTML(httpW); err != nil {
-						return err
-					}
-					if _, err := fmt.Fprint(httpW, `</body>
-</html>`); err != nil {
-						return err
-					}
-					return nil
+nav {
+	padding: 5pt;
+	margin: 5pt;
+}
+nav > a {
+	margin: 5pt;
+}
+`)
+					htmlNode.AddEl("body").AddNode(contentNode)
+					return htmlNode.Render(httpW)
 				},
-				"application/json": w.content.RenderJSON,
+				"application/json": func(httpW io.Writer) error {
+					return json.NewEncoder(httpW).Encode(w.content)
+				},
 			}[media]
 			if err := renderF(httpW); err != nil {
 				http.Error(httpW, err.Error(), 500)
