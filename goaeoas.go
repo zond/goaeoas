@@ -10,13 +10,21 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/schema"
+	"google.golang.org/appengine/datastore"
 )
 
 var (
-	router  *mux.Router
-	filters []func(ResponseWriter, Request) error
+	router        *mux.Router
+	filters       []func(ResponseWriter, Request) error
+	schemaDecoder = schema.NewDecoder()
+)
+
+const (
+	DateTimeInputFormat = "2006-01-02T15:04"
 )
 
 var (
@@ -24,6 +32,8 @@ var (
 	requestType        = reflect.TypeOf((*Request)(nil)).Elem()
 	itemerType         = reflect.TypeOf((*Itemer)(nil)).Elem()
 	errorType          = reflect.TypeOf((*error)(nil)).Elem()
+	keyType            = reflect.TypeOf(&datastore.Key{})
+	timeType           = reflect.TypeOf(time.Now())
 )
 
 type Method int
@@ -167,7 +177,52 @@ func (l *Link) Resolve() (string, error) {
 	return u.String(), nil
 }
 
-func Copy(dest interface{}, r io.Reader, method string) error {
+func Copy(dest interface{}, r Request, method string) error {
+	media, params, err := mime.ParseMediaType(r.Req().Header.Get("Content-Type"))
+	if err != nil {
+		return err
+	}
+	if charset := params["charset"]; charset != "utf-8" && charset != "" {
+		return fmt.Errorf("unsupported character set %v", charset)
+	}
+	switch media {
+	case "application/json":
+		return copyJSON(dest, r.Req().Body, method)
+	case "application/x-www-form-urlencoded":
+		r.Req().ParseForm()
+		return copyURLEncoded(dest, r.Req().PostForm, method)
+	}
+	return fmt.Errorf("unsupported Content-Type %v", media)
+}
+
+func copyURLEncoded(dest interface{}, values url.Values, method string) error {
+	val := reflect.ValueOf(dest)
+	if val.Kind() != reflect.Ptr {
+		return fmt.Errorf("can only copy to pointer to struct")
+	}
+	val = val.Elem()
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("can only copy to pointer to struct")
+	}
+	typ := val.Type()
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		methods := strings.Split(field.Tag.Get("methods"), ",")
+		found := false
+		for j := 0; j < len(methods); j++ {
+			if methods[j] == method {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(values, field.Name)
+		}
+	}
+	return schemaDecoder.Decode(dest, values)
+}
+
+func copyJSON(dest interface{}, r io.Reader, method string) error {
 	decoded := map[string]json.RawMessage{}
 	if err := json.NewDecoder(r).Decode(&decoded); err != nil {
 		return err
