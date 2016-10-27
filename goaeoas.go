@@ -278,7 +278,6 @@ func validFields(prefix string, typ reflect.Type, method string) (map[string]val
 }
 
 func copyURLEncoded(dest interface{}, values url.Values, method string) error {
-	log.Printf("*** copyURLEncoded with: %+v", values)
 	val := reflect.ValueOf(dest)
 	if val.Kind() != reflect.Ptr {
 		return fmt.Errorf("can only copy to pointer to struct")
@@ -297,12 +296,11 @@ func copyURLEncoded(dest interface{}, values url.Values, method string) error {
 			delete(values, key)
 		}
 	}
-	log.Printf("*** values left after scrubbing: %+v", values)
 	return schemaDecoder.Decode(dest, values)
 }
 
 func copyJSON(dest interface{}, r io.Reader, method string) error {
-	decoded := map[string]json.RawMessage{}
+	decoded := map[string]interface{}{}
 	if err := json.NewDecoder(r).Decode(&decoded); err != nil {
 		return err
 	}
@@ -315,25 +313,20 @@ func copyJSON(dest interface{}, r io.Reader, method string) error {
 		return fmt.Errorf("can only copy to pointer to struct")
 	}
 	typ := val.Type()
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		methods := strings.Split(field.Tag.Get("methods"), ",")
-		found := false
-		for j := 0; j < len(methods); j++ {
-			if methods[j] == method {
-				found = true
-				break
-			}
-		}
-		if found {
-			if raw, found := decoded[field.Name]; found {
-				if err := json.Unmarshal(raw, val.Field(i).Addr().Interface()); err != nil {
-					return err
-				}
-			}
+	fields, err := validFields("", typ, method)
+	if err != nil {
+		return err
+	}
+	for key := range decoded {
+		if _, found := fields[key]; !found {
+			delete(decoded, key)
 		}
 	}
-	return nil
+	filtered, err := json.Marshal(decoded)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(filtered, dest)
 }
 
 func (l Link) MarshalJSON() ([]byte, error) {
