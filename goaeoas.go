@@ -413,10 +413,12 @@ func (i Item) HTMLNode() (*Node, error) {
 }
 
 type Resource struct {
-	Create interface{}
-	Update interface{}
-	Delete interface{}
-	Load   interface{}
+	Create     interface{}
+	Update     interface{}
+	Delete     interface{}
+	Load       interface{}
+	FullPath   string
+	CreatePath string
 
 	rType reflect.Type
 }
@@ -439,22 +441,13 @@ func (r *Resource) Route(meth Method) string {
 	return r.rType.Name() + "." + meth.String()
 }
 
-func (r *Resource) Link(rel string, meth Method, id interface{}) Link {
-	if meth == Create {
-		return Link{
-			Rel:    rel,
-			Route:  r.Route(meth),
-			Method: meth.HTTPMethod(),
-			Type:   r.rType,
-		}
-	} else {
-		return Link{
-			Rel:         rel,
-			Route:       r.Route(meth),
-			RouteParams: []string{"id", fmt.Sprint(id)},
-			Method:      meth.HTTPMethod(),
-			Type:        r.rType,
-		}
+func (r *Resource) Link(rel string, meth Method, routeParams []string) Link {
+	return Link{
+		Rel:         rel,
+		Route:       r.Route(meth),
+		RouteParams: routeParams,
+		Method:      meth.HTTPMethod(),
+		Type:        r.rType,
 	}
 }
 
@@ -500,11 +493,17 @@ func createRoute(ro *mux.Router, re *Resource, meth Method, rType reflect.Type) 
 	var fVal reflect.Value
 	fVal, rType = validateResourceFunc(re.resourceFunc(meth), rType)
 	re.rType = rType
+	if re.CreatePath == "" {
+		re.CreatePath = fmt.Sprintf("/%s", rType.Name())
+	}
+	if re.FullPath == "" {
+		re.FullPath = fmt.Sprintf("%s/{id}", re.CreatePath)
+	}
 	pattern := ""
 	if meth == Create {
-		pattern = fmt.Sprintf("/%s", rType.Name())
+		pattern = re.CreatePath
 	} else {
-		pattern = fmt.Sprintf("/%s/{id}", rType.Name())
+		pattern = re.FullPath
 	}
 	Handle(
 		ro,
@@ -553,7 +552,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 	} else if router != ro {
 		panic("only one *mux.Router allowed")
 	}
-	log.Printf("%v\t%+v\t%v", pattern, methods, routeName)
+	log.Printf("Registered %v\t%+v\t%v", pattern, methods, routeName)
 	ro.Path(pattern).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
 		CORSHeaders(httpW)
 		media, params, err := mime.ParseMediaType(httpR.Header.Get("Accept"))
