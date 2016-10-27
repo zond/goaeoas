@@ -1,6 +1,7 @@
 package goaeoas
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -177,6 +178,41 @@ func (l *Link) Resolve() (string, error) {
 	return u.String(), nil
 }
 
+func (l *Link) HTMLNode() (*Node, error) {
+	if l.Method == "" {
+		l.Method = "GET"
+	}
+	u, err := l.Resolve()
+	if err != nil {
+		return nil, err
+	}
+	if l.Method == "GET" {
+		linkNode := NewEl("a", "href", u)
+		linkNode.AddText(l.Rel)
+		return linkNode, nil
+	}
+	formNode := NewEl("form", "method", l.Method, "action", u)
+	if l.Type != nil {
+		tableNode := formNode.AddEl("table")
+		fields, err := validFields("", l.Type, l.Method)
+		if err != nil {
+			return nil, err
+		}
+		for path, field := range fields {
+			rowNode := tableNode.AddEl("tr")
+			rowNode.AddEl("td").AddText(path)
+			switch field.field.Type.Kind() {
+			case reflect.String:
+				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path)
+			}
+		}
+	}
+	formNode.AddEl("input", "type", "submit", "value", l.Rel)
+	buf := &bytes.Buffer{}
+	formNode.Render(buf)
+	return formNode, nil
+}
+
 func Copy(dest interface{}, r Request, method string) error {
 	media, params, err := mime.ParseMediaType(r.Req().Header.Get("Content-Type"))
 	if err != nil {
@@ -195,16 +231,16 @@ func Copy(dest interface{}, r Request, method string) error {
 	return fmt.Errorf("unsupported Content-Type %v", media)
 }
 
-func copyURLEncoded(dest interface{}, values url.Values, method string) error {
-	val := reflect.ValueOf(dest)
-	if val.Kind() != reflect.Ptr {
-		return fmt.Errorf("can only copy to pointer to struct")
+type validField struct {
+	field  reflect.StructField
+	prefix string
+}
+
+func validFields(prefix string, typ reflect.Type, method string) (map[string]validField, error) {
+	if typ.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("validFields only works on structs")
 	}
-	val = val.Elem()
-	if val.Kind() != reflect.Struct {
-		return fmt.Errorf("can only copy to pointer to struct")
-	}
-	typ := val.Type()
+	result := map[string]validField{}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		methods := strings.Split(field.Tag.Get("methods"), ",")
@@ -215,10 +251,53 @@ func copyURLEncoded(dest interface{}, values url.Values, method string) error {
 				break
 			}
 		}
-		if !found {
-			delete(values, field.Name)
+		if found {
+			if field.Type.Kind() == reflect.Struct {
+				var subFields map[string]validField
+				var err error
+				if field.Anonymous {
+					subFields, err = validFields("", field.Type, method)
+				} else {
+					subFields, err = validFields(fmt.Sprintf("%s.", field.Name), field.Type, method)
+				}
+				if err != nil {
+					return nil, err
+				}
+				for path, subField := range subFields {
+					result[path] = subField
+				}
+			} else {
+				result[fmt.Sprintf("%s%s", prefix, field.Name)] = validField{
+					field:  field,
+					prefix: prefix,
+				}
+			}
 		}
 	}
+	return result, nil
+}
+
+func copyURLEncoded(dest interface{}, values url.Values, method string) error {
+	log.Printf("*** copyURLEncoded with: %+v", values)
+	val := reflect.ValueOf(dest)
+	if val.Kind() != reflect.Ptr {
+		return fmt.Errorf("can only copy to pointer to struct")
+	}
+	val = val.Elem()
+	if val.Kind() != reflect.Struct {
+		return fmt.Errorf("can only copy to pointer to struct")
+	}
+	typ := val.Type()
+	fields, err := validFields("", typ, method)
+	if err != nil {
+		return err
+	}
+	for key := range values {
+		if _, found := fields[key]; !found {
+			delete(values, key)
+		}
+	}
+	log.Printf("*** values left after scrubbing: %+v", values)
 	return schemaDecoder.Decode(dest, values)
 }
 
@@ -402,11 +481,11 @@ func (i Item) HTMLNode() (*Node, error) {
 	if len(restLinks) > 0 {
 		navNode := itemNode.AddEl("nav")
 		for _, link := range restLinks {
-			u, err := link.Resolve()
+			linkNode, err := link.HTMLNode()
 			if err != nil {
 				return nil, err
 			}
-			navNode.AddEl("a", "href", u).AddText(link.Rel)
+			navNode.AddNode(linkNode)
 		}
 	}
 	return itemNode, nil
@@ -612,6 +691,11 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 					}
 					htmlNode := NewEl("html")
 					htmlNode.AddEl("head").AddEl("style").AddText(`
+nav > form {
+	padding: 5pt;
+	margin: 0pt;
+	border-style: inset;
+}
 section {
 	border-style: outset;
 	padding: 5pt;
