@@ -194,10 +194,13 @@ func (l *Link) HTMLNode() (*Node, error) {
 	}
 	objID := atomic.AddUint64(&nextElementID, 1)
 	linkNode := NewEl("div")
-	linkNode.AddEl("script").AddText(fmt.Sprintf(`
-var obj%d = {};
-`, objID))
-	if l.Type != nil {
+	sendCode := `
+  req.send();
+`
+	if l.Method == "POST" && l.Type != nil {
+		linkNode.AddEl("script").AddText(fmt.Sprintf(`
+var obj%dHooks = [];
+		`, objID))
 		tableNode := linkNode.AddEl("table")
 		fields, err := validFields("", l.Type, l.Method)
 		if err != nil {
@@ -211,13 +214,20 @@ var obj%d = {};
 				elID := atomic.AddUint64(&nextElementID, 1)
 				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID))
 				rowNode.AddEl("script").AddText(fmt.Sprintf(`
-obj%d[%q] = "";
-document.getElementById("input%d").addEventListener("change", function(ev) {
-	obj%d[%q] = ev.srcElement.value;
+obj%dHooks.push(function(obj) {
+	obj[%q] = document.getElementById("input%d").value;
 });
-`, objID, path, elID, objID, path))
+`, objID, path, elID))
 			}
 		}
+		sendCode = fmt.Sprintf(`
+  req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+  var obj = {};
+  for (var i = 0; i < obj%dHooks.length; i++) {
+  	obj%dHooks[i](obj);
+  }
+	req.send(JSON.stringify(obj));
+`, objID, objID)
 	}
 	buttonID := atomic.AddUint64(&nextElementID, 1)
 	linkNode.AddEl("button", "id", fmt.Sprintf("button%d", buttonID)).AddText(l.Rel)
@@ -234,10 +244,9 @@ document.getElementById("button%d").addEventListener("click", function(ev) {
 		}
 	});
 	req.open(%q, %q);
-	req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
-	req.send(JSON.stringify(obj%d));
+%s
 });
-`, buttonID, l.Method, u, objID))
+`, buttonID, l.Method, u, sendCode))
 	return linkNode, nil
 }
 
@@ -408,6 +417,7 @@ func (i Item) MarshalJSON() ([]byte, error) {
 		propertyValue = propertyValue.Elem()
 	}
 	return json.Marshal(struct {
+		Name       string
 		Properties interface{}
 		Desc       [][]string
 		Type       string
@@ -417,6 +427,7 @@ func (i Item) MarshalJSON() ([]byte, error) {
 		Desc:       i.Desc,
 		Type:       propertyValue.Type().Name(),
 		Links:      i.Links,
+		Name:       i.Name,
 	})
 }
 
