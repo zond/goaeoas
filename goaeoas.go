@@ -1,7 +1,6 @@
 package goaeoas
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -22,6 +22,7 @@ var (
 	router        *mux.Router
 	filters       []func(ResponseWriter, Request) error
 	schemaDecoder = schema.NewDecoder()
+	nextElementID uint64
 )
 
 const (
@@ -191,9 +192,13 @@ func (l *Link) HTMLNode() (*Node, error) {
 		linkNode.AddText(l.Rel)
 		return linkNode, nil
 	}
-	formNode := NewEl("form", "method", l.Method, "action", u)
+	objID := atomic.AddUint64(&nextElementID, 1)
+	linkNode := NewEl("div")
+	linkNode.AddEl("script").AddText(fmt.Sprintf(`
+var obj%d = {};
+`, objID))
 	if l.Type != nil {
-		tableNode := formNode.AddEl("table")
+		tableNode := linkNode.AddEl("table")
 		fields, err := validFields("", l.Type, l.Method)
 		if err != nil {
 			return nil, err
@@ -203,14 +208,37 @@ func (l *Link) HTMLNode() (*Node, error) {
 			rowNode.AddEl("td").AddText(path)
 			switch field.field.Type.Kind() {
 			case reflect.String:
-				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path)
+				elID := atomic.AddUint64(&nextElementID, 1)
+				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID))
+				rowNode.AddEl("script").AddText(fmt.Sprintf(`
+obj%d[%q] = "";
+document.getElementById("input%d").addEventListener("change", function(ev) {
+	obj%d[%q] = ev.srcElement.value;
+});
+`, objID, path, elID, objID, path))
 			}
 		}
 	}
-	formNode.AddEl("input", "type", "submit", "value", l.Rel)
-	buf := &bytes.Buffer{}
-	formNode.Render(buf)
-	return formNode, nil
+	buttonID := atomic.AddUint64(&nextElementID, 1)
+	linkNode.AddEl("button", "id", fmt.Sprintf("button%d", buttonID)).AddText(l.Rel)
+	linkNode.AddEl("script").AddText(fmt.Sprintf(`
+document.getElementById("button%d").addEventListener("click", function(ev) {
+	var req = new XMLHttpRequest();
+	req.addEventListener("readystatechange", function(ev) {
+		if (req.readyState == 4) {
+			if (req.status > 199 && req.status < 300) {
+				alert("done");
+			} else {
+				alert(req.responseText);
+			}
+		}
+	});
+	req.open(%q, %q);
+	req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+	req.send(JSON.stringify(obj%d));
+});
+`, buttonID, l.Method, u, objID))
+	return linkNode, nil
 }
 
 func Copy(dest interface{}, r Request, method string) error {
@@ -218,15 +246,12 @@ func Copy(dest interface{}, r Request, method string) error {
 	if err != nil {
 		return err
 	}
-	if charset := params["charset"]; charset != "utf-8" && charset != "" {
+	if charset := params["charset"]; strings.ToLower(charset) != "utf-8" && charset != "" {
 		return fmt.Errorf("unsupported character set %v", charset)
 	}
 	switch media {
 	case "application/json":
 		return copyJSON(dest, r.Req().Body, method)
-	case "application/x-www-form-urlencoded":
-		r.Req().ParseForm()
-		return copyURLEncoded(dest, r.Req().PostForm, method)
 	}
 	return fmt.Errorf("unsupported Content-Type %v", media)
 }
@@ -275,28 +300,6 @@ func validFields(prefix string, typ reflect.Type, method string) (map[string]val
 		}
 	}
 	return result, nil
-}
-
-func copyURLEncoded(dest interface{}, values url.Values, method string) error {
-	val := reflect.ValueOf(dest)
-	if val.Kind() != reflect.Ptr {
-		return fmt.Errorf("can only copy to pointer to struct")
-	}
-	val = val.Elem()
-	if val.Kind() != reflect.Struct {
-		return fmt.Errorf("can only copy to pointer to struct")
-	}
-	typ := val.Type()
-	fields, err := validFields("", typ, method)
-	if err != nil {
-		return err
-	}
-	for key := range values {
-		if _, found := fields[key]; !found {
-			delete(values, key)
-		}
-	}
-	return schemaDecoder.Decode(dest, values)
 }
 
 func copyJSON(dest interface{}, r io.Reader, method string) error {
@@ -648,7 +651,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 			http.Error(httpW, "only accepts text/hml or application/json requests", 406)
 			return
 		}
-		if params["charset"] != "utf-8" {
+		if strings.ToLower(params["charset"]) != "utf-8" {
 			http.Error(httpW, "only accepts utf-8 requests", 406)
 			return
 		}
