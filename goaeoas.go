@@ -197,7 +197,7 @@ func (l *Link) HTMLNode() (*Node, error) {
 	sendCode := `
   req.send();
 `
-	if l.Method == "POST" && l.Type != nil {
+	if (l.Method == "POST" || l.Method == "PUT") && l.Type != nil {
 		linkNode.AddEl("script").AddText(fmt.Sprintf(`
 var obj%dHooks = [];
 		`, objID))
