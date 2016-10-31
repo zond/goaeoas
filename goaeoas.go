@@ -210,6 +210,21 @@ var obj%dHooks = [];
 			rowNode := tableNode.AddEl("tr")
 			rowNode.AddEl("td").AddText(path)
 			switch field.field.Type.Kind() {
+			case reflect.Slice:
+				separator := field.field.Tag.Get("separator")
+				if separator == "" {
+					separator = ","
+				}
+				switch field.field.Type.Elem().Kind() {
+				case reflect.String:
+					elID := atomic.AddUint64(&nextElementID, 1)
+					rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID), "placeholder", fmt.Sprintf("separated by %q", separator))
+					rowNode.AddEl("script").AddText(fmt.Sprintf(`
+obj%dHooks.push(function(obj) {
+	obj[%q] = document.getElementById("input%d").value.split(%q);
+});
+`, objID, path, elID, separator))
+				}
 			case reflect.String:
 				elID := atomic.AddUint64(&nextElementID, 1)
 				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID))
