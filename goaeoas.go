@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -20,7 +21,7 @@ import (
 
 var (
 	router        *mux.Router
-	filters       []func(ResponseWriter, Request) error
+	filters       []func(ResponseWriter, Request) (bool, error)
 	schemaDecoder = schema.NewDecoder()
 	nextElementID uint64
 )
@@ -149,6 +150,25 @@ type Itemer interface {
 type Properties interface{}
 
 type LinkDecorator func(*Link, *url.URL) error
+
+type Links []Link
+
+func (l Links) Len() int {
+	return len(l)
+}
+
+func (l Links) Less(i, j int) bool {
+	if l[i].Method == l[j].Method {
+		return l[i].Rel < l[j].Rel
+	}
+	iGet := l[i].Method == "GET" || l[i].Method == ""
+	jGet := l[j].Method == "GET" || l[j].Method == ""
+	return iGet && !jGet
+}
+
+func (l Links) Swap(i, j int) {
+	l[i], l[j] = l[j], l[i]
+}
 
 type Link struct {
 	baseScheme     string
@@ -402,7 +422,7 @@ type Item struct {
 	Properties interface{}
 	Name       string
 	Desc       [][]string
-	Links      []Link
+	Links      Links
 }
 
 func NewItem(i interface{}) *Item {
@@ -436,7 +456,7 @@ func (i Item) MarshalJSON() ([]byte, error) {
 		Properties interface{}
 		Desc       [][]string
 		Type       string
-		Links      []Link
+		Links      Links
 	}{
 		Properties: i.Properties,
 		Desc:       i.Desc,
@@ -448,7 +468,7 @@ func (i Item) MarshalJSON() ([]byte, error) {
 
 func (i Item) HTMLNode() (*Node, error) {
 	selfLink := ""
-	restLinks := []Link{}
+	restLinks := Links{}
 	for _, link := range i.Links {
 		if link.Rel == "self" {
 			u, err := link.Resolve()
@@ -460,6 +480,7 @@ func (i Item) HTMLNode() (*Node, error) {
 			restLinks = append(restLinks, link)
 		}
 	}
+	sort.Sort(restLinks)
 
 	itemNode := NewEl("section")
 	titleNode := itemNode.AddEl("header")
@@ -643,7 +664,7 @@ func HandleResource(ro *mux.Router, re *Resource) {
 	}
 }
 
-func AddFilter(f func(ResponseWriter, Request) error) {
+func AddFilter(f func(ResponseWriter, Request) (bool, error)) {
 	filters = append(filters, f)
 }
 
@@ -693,8 +714,12 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		}
 
 		for _, filter := range filters {
-			if err := filter(w, r); err != nil {
+			cont, err := filter(w, r)
+			if err != nil {
 				http.Error(httpW, err.Error(), 500)
+				return
+			}
+			if !cont {
 				return
 			}
 		}
