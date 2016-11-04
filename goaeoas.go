@@ -244,6 +244,14 @@ obj%dHooks.push(function(obj) {
 });
 `, objID, path, elID, separator))
 				}
+			case reflect.Bool:
+				elID := atomic.AddUint64(&nextElementID, 1)
+				rowNode.AddEl("td").AddEl("input", "type", "checkbox", "name", path, "id", fmt.Sprintf("input%d", elID))
+				rowNode.AddEl("script").AddText(fmt.Sprintf(`
+obj%dHooks.push(function(obj) {
+	obj[%q] = document.getElementById("input%d").checked;
+});
+`, objID, path, elID))
 			case reflect.String:
 				elID := atomic.AddUint64(&nextElementID, 1)
 				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID))
