@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"net/http"
 	"net/url"
@@ -421,7 +420,7 @@ type List []Content
 type Item struct {
 	Properties interface{}
 	Name       string
-	Desc       [][]string
+	Desc       [][]string `json:",omitempty"`
 	Links      Links
 }
 
@@ -674,7 +673,6 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 	} else if router != ro {
 		panic("only one *mux.Router allowed")
 	}
-	log.Printf("Registered %v\t%+v\t%v", pattern, methods, routeName)
 	ro.Path(pattern).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
 		CORSHeaders(httpW)
 		media, params, err := mime.ParseMediaType(httpR.Header.Get("Accept"))
