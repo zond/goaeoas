@@ -245,6 +245,8 @@ obj%dHooks.push(function(obj) {
 });
 `, objID, path, elID, separator))
 				}
+			case reflect.Int64:
+				fallthrough
 			case reflect.Int:
 				elID := atomic.AddUint64(&nextElementID, 1)
 				rowNode.AddEl("td").AddEl("input", "type", "number", "step", "1", "name", path, "id", fmt.Sprintf("input%d", elID))
