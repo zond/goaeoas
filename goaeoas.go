@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
+	"google.golang.org/appengine"
 	"google.golang.org/appengine/datastore"
 )
 
@@ -732,6 +733,23 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		}
 
 		if err := f(w, r); err != nil {
+			if err == datastore.ErrNoSuchEntity {
+				http.Error(httpW, err.Error(), 404)
+				return
+			}
+			if merr, ok := err.(appengine.MultiError); ok {
+				only404 := true
+				for _, err := range merr {
+					if err != nil && err != datastore.ErrNoSuchEntity {
+						only404 = false
+						break
+					}
+				}
+				if only404 {
+					http.Error(httpW, err.Error(), 404)
+					return
+				}
+			}
 			http.Error(httpW, err.Error(), 500)
 			return
 		}
