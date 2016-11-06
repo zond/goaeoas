@@ -244,6 +244,14 @@ obj%dHooks.push(function(obj) {
 });
 `, objID, path, elID, separator))
 				}
+			case reflect.Int:
+				elID := atomic.AddUint64(&nextElementID, 1)
+				rowNode.AddEl("td").AddEl("input", "type", "number", "step", "1", "name", path, "id", fmt.Sprintf("input%d", elID))
+				rowNode.AddEl("script").AddText(fmt.Sprintf(`
+obj%dHooks.push(function(obj) {
+	obj[%q] = parseInt(document.getElementById("input%d").value);
+});
+`, objID, path, elID))
 			case reflect.Bool:
 				elID := atomic.AddUint64(&nextElementID, 1)
 				rowNode.AddEl("td").AddEl("input", "type", "checkbox", "name", path, "id", fmt.Sprintf("input%d", elID))
