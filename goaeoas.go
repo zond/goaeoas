@@ -416,8 +416,8 @@ func (l Link) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, field := range fields {
-			typ[field.field.Name] = field.field.Type.String()
+		for path, field := range fields {
+			typ[path] = field.field.Type.String()
 		}
 		generated.Type = typ
 	}
