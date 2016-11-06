@@ -412,19 +412,12 @@ func (l Link) MarshalJSON() ([]byte, error) {
 	}
 	if l.Type != nil {
 		typ := map[string]interface{}{}
-		for i := 0; i < l.Type.NumField(); i++ {
-			field := l.Type.Field(i)
-			methods := strings.Split(field.Tag.Get("methods"), ",")
-			found := false
-			for j := 0; j < len(methods); j++ {
-				if methods[j] == method {
-					found = true
-					break
-				}
-			}
-			if found {
-				typ[field.Name] = field.Type.Name()
-			}
+		fields, err := validFields("", l.Type, method)
+		if err != nil {
+			return nil, err
+		}
+		for _, field := range fields {
+			typ[field.field.Name] = field.field.Type.String()
 		}
 		generated.Type = typ
 	}
