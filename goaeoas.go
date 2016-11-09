@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"net/url"
@@ -686,6 +687,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		panic("only one *mux.Router allowed")
 	}
 	ro.Path(pattern).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
+		log.Printf("%v\t%v\t%v ->", httpR.Method, httpR.URL.String(), routeName)
 		CORSHeaders(httpW)
 		media, params, err := mime.ParseMediaType(httpR.Header.Get("Accept"))
 		if err != nil || media == "" || media == "*/*" {
