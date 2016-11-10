@@ -223,55 +223,61 @@ func (l *Link) HTMLNode() (*Node, error) {
 var obj%dHooks = [];
 		`, objID))
 		tableNode := linkNode.AddEl("table")
-		fields, err := validFields("", l.Type, l.Method)
-		if err != nil {
-			return nil, err
-		}
-		for path, field := range fields {
+		printField := func(field DocField) {
 			rowNode := tableNode.AddEl("tr")
-			rowNode.AddEl("td").AddText(path)
-			switch field.field.Type.Kind() {
+			rowNode.AddEl("td").AddText(field.Name)
+			switch field.Type.typ.Kind() {
 			case reflect.Slice:
 				separator := field.field.Tag.Get("separator")
 				if separator == "" {
 					separator = ","
 				}
-				switch field.field.Type.Elem().Kind() {
+				switch field.Type.typ.Elem().Kind() {
 				case reflect.String:
 					elID := atomic.AddUint64(&nextElementID, 1)
-					rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID), "placeholder", fmt.Sprintf("separated by %q", separator))
+					rowNode.AddEl("td").AddEl("input", "type", "text", "name", field.Name, "id", fmt.Sprintf("input%d", elID), "placeholder", fmt.Sprintf("separated by %q", separator))
 					rowNode.AddEl("script").AddText(fmt.Sprintf(`
 obj%dHooks.push(function(obj) {
 	obj[%q] = document.getElementById("input%d").value.split(%q);
 });
-`, objID, path, elID, separator))
+`, objID, field.Name, elID, separator))
 				}
 			case reflect.Int64:
 				fallthrough
 			case reflect.Int:
 				elID := atomic.AddUint64(&nextElementID, 1)
-				rowNode.AddEl("td").AddEl("input", "type", "number", "step", "1", "name", path, "id", fmt.Sprintf("input%d", elID))
+				rowNode.AddEl("td").AddEl("input", "type", "number", "step", "1", "name", field.Name, "id", fmt.Sprintf("input%d", elID))
 				rowNode.AddEl("script").AddText(fmt.Sprintf(`
 obj%dHooks.push(function(obj) {
 	obj[%q] = parseInt(document.getElementById("input%d").value);
 });
-`, objID, path, elID))
+`, objID, field.Name, elID))
 			case reflect.Bool:
 				elID := atomic.AddUint64(&nextElementID, 1)
-				rowNode.AddEl("td").AddEl("input", "type", "checkbox", "name", path, "id", fmt.Sprintf("input%d", elID))
+				rowNode.AddEl("td").AddEl("input", "type", "checkbox", "name", field.Name, "id", fmt.Sprintf("input%d", elID))
 				rowNode.AddEl("script").AddText(fmt.Sprintf(`
 obj%dHooks.push(function(obj) {
 	obj[%q] = document.getElementById("input%d").checked;
 });
-`, objID, path, elID))
+`, objID, field.Name, elID))
 			case reflect.String:
 				elID := atomic.AddUint64(&nextElementID, 1)
-				rowNode.AddEl("td").AddEl("input", "type", "text", "name", path, "id", fmt.Sprintf("input%d", elID))
+				rowNode.AddEl("td").AddEl("input", "type", "text", "name", field.Name, "id", fmt.Sprintf("input%d", elID))
 				rowNode.AddEl("script").AddText(fmt.Sprintf(`
 obj%dHooks.push(function(obj) {
 	obj[%q] = document.getElementById("input%d").value;
 });
-`, objID, path, elID))
+`, objID, field.Name, elID))
+			}
+		}
+		docType := NewDocType(l.Type, l.Method)
+		for _, field := range docType.Fields {
+			if field.field.Anonymous {
+				for _, field := range field.Type.Fields {
+					printField(field)
+				}
+			} else {
+				printField(field)
 			}
 		}
 		sendCode = fmt.Sprintf(`
@@ -319,16 +325,30 @@ func Copy(dest interface{}, r Request, method string) error {
 	return fmt.Errorf("unsupported Content-Type %v", media)
 }
 
-type validField struct {
-	field  reflect.StructField
-	prefix string
+type DocType struct {
+	Name   string
+	Elem   *DocType   `json:",omitempty"`
+	Fields []DocField `json:",omitempty"`
+	typ    reflect.Type
 }
 
-func validFields(prefix string, typ reflect.Type, method string) (map[string]validField, error) {
-	if typ.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("validFields only works on structs")
+func (d DocType) GetField(n string) (*DocField, bool) {
+	for _, field := range d.Fields {
+		if field.Name == n {
+			return &field, true
+		}
 	}
-	result := map[string]validField{}
+	return nil, false
+}
+
+type DocField struct {
+	Name  string
+	Type  DocType
+	field reflect.StructField
+}
+
+func NewDocFields(typ reflect.Type, method string) []DocField {
+	result := []DocField{}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		methods := strings.Split(field.Tag.Get("methods"), ",")
@@ -340,29 +360,33 @@ func validFields(prefix string, typ reflect.Type, method string) (map[string]val
 			}
 		}
 		if found {
-			if field.Type.Kind() == reflect.Struct {
-				var subFields map[string]validField
-				var err error
-				if field.Anonymous {
-					subFields, err = validFields("", field.Type, method)
-				} else {
-					subFields, err = validFields(fmt.Sprintf("%s.", field.Name), field.Type, method)
-				}
-				if err != nil {
-					return nil, err
-				}
-				for path, subField := range subFields {
-					result[path] = subField
-				}
+			if field.Anonymous {
+				result = append(result, NewDocFields(field.Type, method)...)
 			} else {
-				result[fmt.Sprintf("%s%s", prefix, field.Name)] = validField{
-					field:  field,
-					prefix: prefix,
-				}
+				result = append(result, DocField{
+					Name:  field.Name,
+					Type:  NewDocType(field.Type, method),
+					field: field,
+				})
 			}
 		}
 	}
-	return result, nil
+	return result
+}
+
+func NewDocType(typ reflect.Type, method string) DocType {
+	result := DocType{
+		Name: typ.Kind().String(),
+		typ:  typ,
+	}
+	switch typ.Kind() {
+	case reflect.Struct:
+		result.Fields = NewDocFields(typ, method)
+	case reflect.Slice:
+		elem := NewDocType(typ.Elem(), method)
+		result.Elem = &elem
+	}
+	return result
 }
 
 func copyJSON(dest interface{}, r io.Reader, method string) error {
@@ -379,20 +403,37 @@ func copyJSON(dest interface{}, r io.Reader, method string) error {
 		return fmt.Errorf("can only copy to pointer to struct")
 	}
 	typ := val.Type()
-	fields, err := validFields("", typ, method)
-	if err != nil {
+	if err := filterJSON(typ, decoded, method); err != nil {
 		return err
-	}
-	for key := range decoded {
-		if _, found := fields[key]; !found {
-			delete(decoded, key)
-		}
 	}
 	filtered, err := json.Marshal(decoded)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(filtered, dest)
+}
+
+func filterJSON(typ reflect.Type, m map[string]interface{}, method string) error {
+	docType := NewDocType(typ, method)
+	for key, value := range m {
+		field, found := docType.GetField(key)
+		if found {
+			if len(field.Type.Fields) > 0 {
+				if err := filterJSON(field.Type.typ, value.(map[string]interface{}), method); err != nil {
+					return err
+				}
+			} else if field.Type.Elem != nil && len(field.Type.Elem.Fields) > 0 {
+				for _, elem := range value.([]interface{}) {
+					if err := filterJSON(field.Type.Elem.typ, elem.(map[string]interface{}), method); err != nil {
+						return err
+					}
+				}
+			}
+		} else {
+			delete(m, key)
+		}
+	}
+	return nil
 }
 
 func (l Link) MarshalJSON() ([]byte, error) {
@@ -408,22 +449,15 @@ func (l Link) MarshalJSON() ([]byte, error) {
 		Rel    string
 		URL    string
 		Method string
-		Type   map[string]interface{} `json:",omitempty"`
+		Type   *DocType `json:",omitempty"`
 	}{
 		Rel:    l.Rel,
 		URL:    u,
 		Method: method,
 	}
 	if l.Type != nil {
-		typ := map[string]interface{}{}
-		fields, err := validFields("", l.Type, method)
-		if err != nil {
-			return nil, err
-		}
-		for path, field := range fields {
-			typ[path] = field.field.Type.String()
-		}
-		generated.Type = typ
+		docType := NewDocType(l.Type, l.Method)
+		generated.Type = &docType
 	}
 	return json.Marshal(generated)
 }
