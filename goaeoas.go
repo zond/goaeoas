@@ -25,6 +25,7 @@ var (
 	filters       []func(ResponseWriter, Request) (bool, error)
 	schemaDecoder = schema.NewDecoder()
 	nextElementID uint64
+	headCallbacks []func(*Node) error
 )
 
 const (
@@ -714,6 +715,10 @@ func AddFilter(f func(ResponseWriter, Request) (bool, error)) {
 	filters = append(filters, f)
 }
 
+func HeadCallback(f func(*Node) error) {
+	headCallbacks = append(headCallbacks, f)
+}
+
 func Handle(ro *mux.Router, pattern string, methods []string, routeName string, f func(ResponseWriter, Request) error) {
 	if router == nil {
 		router = ro
@@ -793,14 +798,20 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		}
 
 		if w.content != nil {
-			renderF := map[string]func(io.Writer) error{
-				"text/html": func(httpW io.Writer) error {
+			renderF := map[string]func(http.ResponseWriter) error{
+				"text/html": func(httpW http.ResponseWriter) error {
 					contentNode, err := w.content.HTMLNode()
 					if err != nil {
 						return err
 					}
 					htmlNode := NewEl("html")
-					htmlNode.AddEl("head").AddEl("style").AddText(`
+					headNode := htmlNode.AddEl("head")
+					for _, cb := range headCallbacks {
+						if err := cb(headNode); err != nil {
+							return err
+						}
+					}
+					headNode.AddEl("style").AddText(`
 nav > form {
 	padding: 5pt;
 	margin: 0pt;
@@ -831,9 +842,11 @@ nav > a {
 }
 `)
 					htmlNode.AddEl("body").AddNode(contentNode)
+					httpW.Header().Set("Content-Type", "text/html; charset=UTF-8")
 					return htmlNode.Render(httpW)
 				},
-				"application/json": func(httpW io.Writer) error {
+				"application/json": func(httpW http.ResponseWriter) error {
+					httpW.Header().Set("Content-Type", "application/json; charset=UTF-8")
 					return json.NewEncoder(httpW).Encode(w.content)
 				},
 			}[media]
