@@ -327,6 +327,7 @@ func Copy(dest interface{}, r Request, method string) error {
 }
 
 type DocType struct {
+	Kind   string
 	Name   string
 	Elem   *DocType   `json:",omitempty"`
 	Fields []DocField `json:",omitempty"`
@@ -377,7 +378,8 @@ func NewDocFields(typ reflect.Type, method string) []DocField {
 
 func NewDocType(typ reflect.Type, method string) DocType {
 	result := DocType{
-		Name: typ.Kind().String(),
+		Name: typ.String(),
+		Kind: typ.Kind().String(),
 		typ:  typ,
 	}
 	switch typ.Kind() {
