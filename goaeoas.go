@@ -214,82 +214,53 @@ func (l *Link) HTMLNode() (*Node, error) {
 		linkNode.AddText(l.Rel)
 		return linkNode, nil
 	}
-	objID := atomic.AddUint64(&nextElementID, 1)
-	linkNode := NewEl("div")
-	sendCode := `
-  req.send();
-`
 	if (l.Method == "POST" || l.Method == "PUT") && l.Type != nil {
+		docType, err := NewDocType(l.Type, l.Method)
+		if err != nil {
+			return nil, err
+		}
+		linkNode := NewEl("div")
+		formID := fmt.Sprintf("form%d", atomic.AddUint64(&nextElementID, 1))
+		linkNode.AddEl("form", "id", formID)
+		schema, err := docType.ToJSONSchema()
+		if err != nil {
+			return nil, err
+		}
+		schemaJSON, err := json.MarshalIndent(schema, "  ", "  ")
+		if err != nil {
+			return nil, err
+		}
 		linkNode.AddEl("script").AddText(fmt.Sprintf(`
-var obj%dHooks = [];
-		`, objID))
-		tableNode := linkNode.AddEl("table")
-		printField := func(field DocField) {
-			rowNode := tableNode.AddEl("tr")
-			rowNode.AddEl("td").AddText(field.Name)
-			switch field.Type.typ.Kind() {
-			case reflect.Slice:
-				separator := field.field.Tag.Get("separator")
-				if separator == "" {
-					separator = ","
-				}
-				switch field.Type.typ.Elem().Kind() {
-				case reflect.String:
-					elID := atomic.AddUint64(&nextElementID, 1)
-					rowNode.AddEl("td").AddEl("input", "type", "text", "name", field.Name, "id", fmt.Sprintf("input%d", elID), "placeholder", fmt.Sprintf("separated by %q", separator))
-					rowNode.AddEl("script").AddText(fmt.Sprintf(`
-obj%dHooks.push(function(obj) {
-	obj[%q] = document.getElementById("input%d").value.split(%q);
-});
-`, objID, field.Name, elID, separator))
-				}
-			case reflect.Int64:
-				fallthrough
-			case reflect.Int:
-				elID := atomic.AddUint64(&nextElementID, 1)
-				rowNode.AddEl("td").AddEl("input", "type", "number", "step", "1", "name", field.Name, "id", fmt.Sprintf("input%d", elID))
-				rowNode.AddEl("script").AddText(fmt.Sprintf(`
-obj%dHooks.push(function(obj) {
-	obj[%q] = parseInt(document.getElementById("input%d").value);
-});
-`, objID, field.Name, elID))
-			case reflect.Bool:
-				elID := atomic.AddUint64(&nextElementID, 1)
-				rowNode.AddEl("td").AddEl("input", "type", "checkbox", "name", field.Name, "id", fmt.Sprintf("input%d", elID))
-				rowNode.AddEl("script").AddText(fmt.Sprintf(`
-obj%dHooks.push(function(obj) {
-	obj[%q] = document.getElementById("input%d").checked;
-});
-`, objID, field.Name, elID))
-			case reflect.String:
-				elID := atomic.AddUint64(&nextElementID, 1)
-				rowNode.AddEl("td").AddEl("input", "type", "text", "name", field.Name, "id", fmt.Sprintf("input%d", elID))
-				rowNode.AddEl("script").AddText(fmt.Sprintf(`
-obj%dHooks.push(function(obj) {
-	obj[%q] = document.getElementById("input%d").value;
-});
-`, objID, field.Name, elID))
-			}
+$('#%s').jsonForm({
+  schema: %s,
+	form: [
+	  "*",
+		{
+			"type": "submit",
+			"title": %q
 		}
-		docType := NewDocType(l.Type, l.Method)
-		for _, field := range docType.Fields {
-			if field.field.Anonymous {
-				for _, field := range field.Type.Fields {
-					printField(field)
+	],
+	onSubmitValid: function(values) {
+		var req = new XMLHttpRequest();
+		req.addEventListener("readystatechange", function(ev) {
+			if (req.readyState == 4) {
+				if (req.status > 199 && req.status < 300) {
+					alert("done");
+				} else {
+					alert(req.responseText);
 				}
-			} else {
-				printField(field)
 			}
-		}
-		sendCode = fmt.Sprintf(`
-  req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
-  var obj = {};
-  for (var i = 0; i < obj%dHooks.length; i++) {
-  	obj%dHooks[i](obj);
-  }
-	req.send(JSON.stringify(obj));
-`, objID, objID)
+		});
+		req.open(%q, %q);
+		req.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+		req.send(JSON.stringify(values));
+		return false;
 	}
+});
+`, formID, schemaJSON, l.Rel, l.Method, u))
+		return linkNode, nil
+	}
+	linkNode := NewEl("div")
 	buttonID := atomic.AddUint64(&nextElementID, 1)
 	linkNode.AddEl("button", "id", fmt.Sprintf("button%d", buttonID)).AddText(l.Rel)
 	linkNode.AddEl("script").AddText(fmt.Sprintf(`
@@ -305,10 +276,43 @@ document.getElementById("button%d").addEventListener("click", function(ev) {
 		}
 	});
 	req.open(%q, %q);
-%s
+  req.send();
 });
-`, buttonID, l.Method, u, sendCode))
+`, buttonID, l.Method, u))
 	return linkNode, nil
+}
+
+func (l Link) MarshalJSON() ([]byte, error) {
+	u, err := l.Resolve()
+	if err != nil {
+		return nil, err
+	}
+	method := l.Method
+	if method == "" {
+		method = "GET"
+	}
+	generated := struct {
+		Rel        string
+		URL        string
+		Method     string
+		JSONSchema *JSONSchema `json:",omitempty"`
+	}{
+		Rel:    l.Rel,
+		URL:    u,
+		Method: method,
+	}
+	if (l.Method == "POST" || l.Method == "PUT") && l.Type != nil {
+		docType, err := NewDocType(l.Type, l.Method)
+		if err != nil {
+			return nil, err
+		}
+		schema, err := docType.ToJSONSchema()
+		if err != nil {
+			return nil, err
+		}
+		generated.JSONSchema = schema
+	}
+	return json.Marshal(generated)
 }
 
 func Copy(dest interface{}, r Request, method string) error {
@@ -329,9 +333,10 @@ func Copy(dest interface{}, r Request, method string) error {
 type DocType struct {
 	Kind   string
 	Name   string
-	Elem   *DocType   `json:",omitempty"`
-	Fields []DocField `json:",omitempty"`
+	Elem   *DocType
+	Fields []DocField
 	typ    reflect.Type
+	method string
 }
 
 func (d DocType) GetField(n string) (*DocField, bool) {
@@ -343,53 +348,149 @@ func (d DocType) GetField(n string) (*DocField, bool) {
 	return nil, false
 }
 
+type JSONSchema struct {
+	Type                 string                `json:"type"`
+	Properties           map[string]JSONSchema `json:"properties,omitempty"`
+	AdditionalProperties *JSONSchema           `json:"additionalProperties,omitempty"`
+	Items                *JSONSchema           `json:"items,omitempty"`
+	Title                string                `json:"title,omitempty"`
+}
+
+func (d DocType) ToJSONSchema() (*JSONSchema, error) {
+	schemaType := &JSONSchema{}
+	switch d.typ.Kind() {
+	case reflect.Ptr:
+		log.Printf("*** d.typ is %v, == %v => %v", d.typ, keyType, d.typ == keyType)
+		if d.typ == keyType {
+			schemaType.Type = "string"
+		} else {
+			return nil, fmt.Errorf("Untranslatable Go Kind %q", d.Kind)
+		}
+	case reflect.Map:
+		schemaType.Type = "object"
+		valueDocType, err := NewDocType(d.typ.Elem(), d.method)
+		if err != nil {
+			return nil, err
+		}
+		valueType, err := valueDocType.ToJSONSchema()
+		if err != nil {
+			return nil, err
+		}
+		schemaType.AdditionalProperties = valueType
+	case reflect.Bool:
+		schemaType.Type = "boolean"
+	case reflect.String:
+		schemaType.Type = "string"
+	case reflect.Struct:
+		switch d.typ {
+		case timeType:
+			schemaType.Type = "datetime"
+		default:
+			schemaType.Type = "object"
+			schemaType.Properties = map[string]JSONSchema{}
+			for _, field := range d.Fields {
+				s, err := field.ToJSONSchema()
+				if err != nil {
+					return nil, err
+				}
+				schemaType.Properties[field.Name] = *s
+			}
+		}
+	case reflect.Slice:
+		schemaType.Type = "array"
+		elType, err := d.Elem.ToJSONSchema()
+		if err != nil {
+			return nil, err
+		}
+		schemaType.Items = elType
+	case reflect.Int64:
+		fallthrough
+	case reflect.Int32:
+		fallthrough
+	case reflect.Int:
+		schemaType.Type = "integer"
+	default:
+		return nil, fmt.Errorf("Untranslatable Go Kind %q", d.Kind)
+	}
+	return schemaType, nil
+}
+
 type DocField struct {
 	Name  string
-	Type  DocType
+	Type  *DocType
 	field reflect.StructField
 }
 
-func NewDocFields(typ reflect.Type, method string) []DocField {
+func (d DocField) ToJSONSchema() (*JSONSchema, error) {
+	typ, err := d.Type.ToJSONSchema()
+	if err != nil {
+		return nil, err
+	}
+	typ.Title = d.Name
+	return typ, nil
+}
+
+func NewDocFields(typ reflect.Type, method string) ([]DocField, error) {
 	result := []DocField{}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		methods := strings.Split(field.Tag.Get("methods"), ",")
 		found := false
-		for j := 0; j < len(methods); j++ {
-			if methods[j] == method {
-				found = true
-				break
+		if method == "GET" || method == "" {
+			found = field.Tag.Get("json") != "-"
+		} else {
+			methods := strings.Split(field.Tag.Get("methods"), ",")
+			for j := 0; j < len(methods); j++ {
+				if methods[j] == method {
+					found = true
+					break
+				}
 			}
 		}
 		if found {
 			if field.Anonymous {
-				result = append(result, NewDocFields(field.Type, method)...)
+				f, err := NewDocFields(field.Type, method)
+				if err != nil {
+					return nil, err
+				}
+				result = append(result, f...)
 			} else {
+				d, err := NewDocType(field.Type, method)
+				if err != nil {
+					return nil, err
+				}
 				result = append(result, DocField{
 					Name:  field.Name,
-					Type:  NewDocType(field.Type, method),
+					Type:  d,
 					field: field,
 				})
 			}
 		}
 	}
-	return result
+	return result, nil
 }
 
-func NewDocType(typ reflect.Type, method string) DocType {
-	result := DocType{
-		Name: typ.String(),
-		Kind: typ.Kind().String(),
-		typ:  typ,
+func NewDocType(typ reflect.Type, method string) (*DocType, error) {
+	result := &DocType{
+		Name:   typ.String(),
+		Kind:   typ.Kind().String(),
+		typ:    typ,
+		method: method,
 	}
 	switch typ.Kind() {
 	case reflect.Struct:
-		result.Fields = NewDocFields(typ, method)
+		var err error
+		result.Fields, err = NewDocFields(typ, method)
+		if err != nil {
+			return nil, err
+		}
 	case reflect.Slice:
-		elem := NewDocType(typ.Elem(), method)
-		result.Elem = &elem
+		elem, err := NewDocType(typ.Elem(), method)
+		if err != nil {
+			return nil, err
+		}
+		result.Elem = elem
 	}
-	return result
+	return result, nil
 }
 
 func copyJSON(dest interface{}, r io.Reader, method string) error {
@@ -417,7 +518,10 @@ func copyJSON(dest interface{}, r io.Reader, method string) error {
 }
 
 func filterJSON(typ reflect.Type, m map[string]interface{}, method string) error {
-	docType := NewDocType(typ, method)
+	docType, err := NewDocType(typ, method)
+	if err != nil {
+		return err
+	}
 	for key, value := range m {
 		field, found := docType.GetField(key)
 		if found {
@@ -439,38 +543,12 @@ func filterJSON(typ reflect.Type, m map[string]interface{}, method string) error
 	return nil
 }
 
-func (l Link) MarshalJSON() ([]byte, error) {
-	u, err := l.Resolve()
-	if err != nil {
-		return nil, err
-	}
-	method := l.Method
-	if method == "" {
-		method = "GET"
-	}
-	generated := struct {
-		Rel    string
-		URL    string
-		Method string
-		Type   *DocType `json:",omitempty"`
-	}{
-		Rel:    l.Rel,
-		URL:    u,
-		Method: method,
-	}
-	if l.Type != nil {
-		docType := NewDocType(l.Type, l.Method)
-		generated.Type = &docType
-	}
-	return json.Marshal(generated)
-}
-
 type List []Content
 
 type Item struct {
 	Properties interface{}
 	Name       string
-	Desc       [][]string `json:",omitempty"`
+	Desc       [][]string
 	Links      Links
 }
 
@@ -503,7 +581,7 @@ func (i Item) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		Name       string
 		Properties interface{}
-		Desc       [][]string
+		Desc       [][]string `json:",omitempty"`
 		Type       string
 		Links      Links
 	}{
@@ -813,6 +891,10 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 							return err
 						}
 					}
+					headNode.AddEl("script", "src", "https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js")
+					headNode.AddEl("script", "src", "https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js")
+					headNode.AddEl("script").AddText(jsvJS())
+					headNode.AddEl("script").AddText(jsonformJS())
 					headNode.AddEl("style").AddText(`
 nav > form {
 	padding: 5pt;
