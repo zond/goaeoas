@@ -23,6 +23,7 @@ import (
 var (
 	router        *mux.Router
 	filters       []func(ResponseWriter, Request) (bool, error)
+	postProcs     []func(ResponseWriter, Request, error) (bool, error)
 	schemaDecoder = schema.NewDecoder()
 	nextElementID uint64
 	headCallbacks []func(*Node) error
@@ -40,6 +41,43 @@ var (
 	keyType            = reflect.TypeOf(&datastore.Key{})
 	timeType           = reflect.TypeOf(time.Now())
 )
+
+type HTTPErr struct {
+	Body   string
+	Status int
+}
+
+func (h HTTPErr) Error() string {
+	return fmt.Sprintf("%s: %d", h.Body, h.Status)
+}
+
+func HandleError(w http.ResponseWriter, err error) {
+	if herr, ok := err.(HTTPErr); ok {
+		http.Error(w, herr.Body, herr.Status)
+		return
+	}
+
+	if err == datastore.ErrNoSuchEntity {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+
+	if merr, ok := err.(appengine.MultiError); ok {
+		only404 := true
+		for _, err := range merr {
+			if err != nil && err != datastore.ErrNoSuchEntity {
+				only404 = false
+				break
+			}
+		}
+		if only404 {
+			http.Error(w, err.Error(), 404)
+			return
+		}
+	}
+
+	http.Error(w, err.Error(), 500)
+}
 
 type Method int
 
@@ -798,6 +836,10 @@ func AddFilter(f func(ResponseWriter, Request) (bool, error)) {
 	filters = append(filters, f)
 }
 
+func AddPostProc(f func(ResponseWriter, Request, error) (bool, error)) {
+	postProcs = append(postProcs, f)
+}
+
 func HeadCallback(f func(*Node) error) {
 	headCallbacks = append(headCallbacks, f)
 }
@@ -850,7 +892,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		for _, filter := range filters {
 			cont, err := filter(w, r)
 			if err != nil {
-				http.Error(httpW, err.Error(), 500)
+				HandleError(httpW, err)
 				return
 			}
 			if !cont {
@@ -859,24 +901,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		}
 
 		if err := f(w, r); err != nil {
-			if err == datastore.ErrNoSuchEntity {
-				http.Error(httpW, err.Error(), 404)
-				return
-			}
-			if merr, ok := err.(appengine.MultiError); ok {
-				only404 := true
-				for _, err := range merr {
-					if err != nil && err != datastore.ErrNoSuchEntity {
-						only404 = false
-						break
-					}
-				}
-				if only404 {
-					http.Error(httpW, err.Error(), 404)
-					return
-				}
-			}
-			http.Error(httpW, err.Error(), 500)
+			HandleError(w, err)
 			return
 		}
 
@@ -937,8 +962,16 @@ nav > a {
 					return json.NewEncoder(httpW).Encode(w.content)
 				},
 			}[media]
-			if err := renderF(httpW); err != nil {
-				http.Error(httpW, err.Error(), 500)
+			err := renderF(httpW)
+			cont := false
+			for _, postProc := range postProcs {
+				cont, err = postProc(w, r, err)
+				if !cont {
+					break
+				}
+			}
+			if err != nil {
+				HandleError(httpW, err)
 			}
 		}
 	}).Name(routeName)
