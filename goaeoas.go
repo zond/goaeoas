@@ -214,11 +214,14 @@ func (l *Link) HTMLNode() (*Node, error) {
 		linkNode.AddText(l.Rel)
 		return linkNode, nil
 	}
-	if (l.Method == "POST" || l.Method == "PUT") && l.Type != nil {
-		docType, err := NewDocType(l.Type, l.Method)
+	var docType *DocType
+	if l.Type != nil {
+		docType, err = NewDocType(l.Type, l.Method)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if (l.Method == "POST" || l.Method == "PUT") && docType != nil && len(docType.Fields) > 0 {
 		linkNode := NewEl("div")
 		formID := fmt.Sprintf("form%d", atomic.AddUint64(&nextElementID, 1))
 		linkNode.AddEl("form", "id", formID)
