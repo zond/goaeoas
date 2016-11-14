@@ -900,9 +900,16 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 			}
 		}
 
-		if err := f(w, r); err != nil {
-			HandleError(w, err)
-			return
+		err = f(w, r)
+		cont := false
+		for _, postProc := range postProcs {
+			cont, err = postProc(w, r, err)
+			if !cont {
+				break
+			}
+		}
+		if err != nil {
+			HandleError(httpW, err)
 		}
 
 		if w.content != nil {
@@ -962,15 +969,7 @@ nav > a {
 					return json.NewEncoder(httpW).Encode(w.content)
 				},
 			}[media]
-			err := renderF(httpW)
-			cont := false
-			for _, postProc := range postProcs {
-				cont, err = postProc(w, r, err)
-				if !cont {
-					break
-				}
-			}
-			if err != nil {
+			if err := renderF(httpW); err != nil {
 				HandleError(httpW, err)
 			}
 		}
