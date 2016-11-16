@@ -27,6 +27,8 @@ var (
 	schemaDecoder = schema.NewDecoder()
 	nextElementID uint64
 	headCallbacks []func(*Node) error
+	jsonFormURL   *url.URL
+	jsvURL        *url.URL
 )
 
 const (
@@ -844,6 +846,14 @@ func HeadCallback(f func(*Node) error) {
 	headCallbacks = append(headCallbacks, f)
 }
 
+func SetJSONFormURL(u *url.URL) {
+	jsonFormURL = u
+}
+
+func SetJSVURL(u *url.URL) {
+	jsvURL = u
+}
+
 func Handle(ro *mux.Router, pattern string, methods []string, routeName string, f func(ResponseWriter, Request) error) {
 	if router == nil {
 		router = ro
@@ -928,8 +938,16 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 					}
 					headNode.AddEl("script", "src", "https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js")
 					headNode.AddEl("script", "src", "https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js")
-					headNode.AddEl("script").AddText(jsvJS())
-					headNode.AddEl("script").AddText(jsonformJS())
+					if jsonFormURL != nil {
+						headNode.AddEl("script", "src", jsonFormURL.String())
+					} else {
+						headNode.AddEl("script").AddText(jsonformJS())
+					}
+					if jsvURL != nil {
+						headNode.AddEl("script", "src", jsvURL.String())
+					} else {
+						headNode.AddEl("script").AddText(jsvJS())
+					}
 					headNode.AddEl("style").AddText(`
 nav > form {
 	padding: 5pt;
