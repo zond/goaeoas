@@ -452,6 +452,8 @@ func (d DocType) ToJSONSchema() (*JSONSchema, error) {
 		fallthrough
 	case reflect.Int:
 		schemaType.Type = "integer"
+	case reflect.Float64:
+		schemaType.Type = "float"
 	default:
 		return nil, fmt.Errorf("Untranslatable Go Kind %q", d.Kind)
 	}
