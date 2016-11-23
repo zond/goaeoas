@@ -706,11 +706,19 @@ func (i Item) HTMLNode() (*Node, error) {
 	return itemNode, nil
 }
 
+type Lister struct {
+	Path    string
+	Route   string
+	Handler func(ResponseWriter, Request) error
+}
+
 type Resource struct {
-	Create     interface{}
-	Update     interface{}
-	Delete     interface{}
-	Load       interface{}
+	Create  interface{}
+	Update  interface{}
+	Delete  interface{}
+	Load    interface{}
+	Listers []Lister
+
 	FullPath   string
 	CreatePath string
 
@@ -833,6 +841,9 @@ func HandleResource(ro *mux.Router, re *Resource) {
 	}
 	if re.Load != nil {
 		createRoute(ro, re, Load, rType)
+	}
+	for _, lister := range re.Listers {
+		Handle(ro, lister.Path, []string{"GET"}, lister.Route, lister.Handler)
 	}
 }
 
