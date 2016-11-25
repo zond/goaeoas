@@ -1,9 +1,23 @@
 package goaeoas
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"strings"
+
+	"github.com/gorilla/mux"
+)
+
+var (
+	pathElementReg = regexp.MustCompile("^([^{]*\\{)([^}]+)(\\}.*$)")
+	resources      = []*Resource{}
 )
 
 type Lister struct {
@@ -22,7 +36,159 @@ type Resource struct {
 	FullPath   string
 	CreatePath string
 
-	rType reflect.Type
+	Type reflect.Type
+}
+
+func createRoute(ro *mux.Router, re *Resource, meth Method, rType reflect.Type) reflect.Type {
+	var fVal reflect.Value
+	fVal, rType = validateResourceFunc(re.resourceFunc(meth), rType)
+	re.Type = rType
+	if re.CreatePath == "" {
+		re.CreatePath = fmt.Sprintf("/%s", rType.Name())
+	}
+	if re.FullPath == "" {
+		re.FullPath = fmt.Sprintf("%s/{id}", re.CreatePath)
+	}
+	pattern := ""
+	if meth == Create {
+		pattern = re.CreatePath
+	} else {
+		pattern = re.FullPath
+	}
+	Handle(
+		ro,
+		pattern,
+		[]string{
+			meth.HTTPMethod(),
+		},
+		re.Route(meth),
+		func(w ResponseWriter, r Request) error {
+			resultVals := fVal.Call([]reflect.Value{reflect.ValueOf(w), reflect.ValueOf(r)})
+			if !resultVals[1].IsNil() {
+				return resultVals[1].Interface().(error)
+			}
+			if !resultVals[0].IsNil() {
+				w.SetContent(resultVals[0].Interface().(Itemer).Item(r))
+			}
+			return nil
+		},
+	)
+	return rType
+}
+
+func HandleResource(ro *mux.Router, re *Resource) {
+	var rType reflect.Type
+	if re.Create != nil {
+		rType = createRoute(ro, re, Create, rType)
+	}
+	if re.Update != nil {
+		rType = createRoute(ro, re, Update, rType)
+	}
+	if re.Delete != nil {
+		rType = createRoute(ro, re, Delete, rType)
+	}
+	if re.Load != nil {
+		createRoute(ro, re, Load, rType)
+	}
+	for _, lister := range re.Listers {
+		Handle(ro, lister.Path, []string{"GET"}, lister.Route, lister.Handler)
+	}
+	resources = append(resources, re)
+}
+
+func (r *Resource) writeJavaListerMeth(lister Lister, w io.Writer) error {
+	ms, err := r.methodSignature(Load, lister.Path, lister.Route, true)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, `  @%s(%q)
+  %s;
+
+`, strings.ToUpper(Load.HTTPMethod()), lister.Path, ms)
+	return nil
+}
+
+func (r *Resource) methodSignature(meth Method, pathTemplate string, route string, plural bool) (string, error) {
+	buf := &bytes.Buffer{}
+	args := []string{}
+	for match := pathElementReg.FindStringSubmatch(pathTemplate); match != nil; match = pathElementReg.FindStringSubmatch(pathTemplate) {
+		args = append(args, fmt.Sprintf("@Path(\"%s\") String %s", match[2], match[2]))
+		pathTemplate = match[3]
+	}
+	switch meth {
+	case Create:
+		args = append(args, fmt.Sprintf("@Body %s %s", r.Type.Name(), strings.ToLower(r.Type.Name())))
+	}
+	methName := fmt.Sprintf("%s%s%s", r.Type.Name(), strings.ToUpper(string([]rune(meth.String())[0])), strings.ToLower(string([]rune(meth.String())[1:])))
+	if route != "" {
+		methName = route
+	}
+	pluralChar := ""
+	if plural {
+		pluralChar = "s"
+	}
+	fmt.Fprintf(buf, "Observable<%s%sContainer> %s(%s)", r.Type.Name(), pluralChar, methName, strings.Join(args, ", "))
+	return buf.String(), nil
+}
+
+func (r *Resource) writeJavaMeth(meth Method, w io.Writer) error {
+	pt, err := router.Get(r.Route(meth)).GetPathTemplate()
+	if err != nil {
+		return err
+	}
+	ms, err := r.methodSignature(meth, pt, "", false)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, `  @%s(%q)
+  %s;
+
+`, strings.ToUpper(meth.HTTPMethod()), pt, ms)
+	return nil
+}
+
+func (r *Resource) toJavaClasses(meth string) (map[string]string, error) {
+	docType, err := NewDocType(r.Type, meth)
+	if err != nil {
+		return nil, err
+	}
+	return docType.ToJavaClasses(meth)
+}
+
+func (r *Resource) toJavaInterface() (string, error) {
+	buf := &bytes.Buffer{}
+	fmt.Fprintf(buf, `import retrofit2.http.*;
+import rx.*;
+	
+public interface %sService {
+`, r.Type.Name())
+	if r.Create != nil {
+		if err := r.writeJavaMeth(Create, buf); err != nil {
+			return "", err
+		}
+	}
+	if r.Load != nil {
+		if err := r.writeJavaMeth(Load, buf); err != nil {
+			return "", err
+		}
+	}
+	if r.Update != nil {
+		if err := r.writeJavaMeth(Update, buf); err != nil {
+			return "", err
+		}
+	}
+	if r.Delete != nil {
+		if err := r.writeJavaMeth(Delete, buf); err != nil {
+			return "", err
+		}
+	}
+	for _, lister := range r.Listers {
+		if err := r.writeJavaListerMeth(lister, buf); err != nil {
+			return "", err
+		}
+	}
+	fmt.Fprint(buf, "}")
+	return buf.String(), nil
 }
 
 func (r *Resource) resourceFunc(meth Method) interface{} {
@@ -40,7 +206,7 @@ func (r *Resource) resourceFunc(meth Method) interface{} {
 }
 
 func (r *Resource) Route(meth Method) string {
-	return r.rType.Name() + "." + meth.String()
+	return r.Type.Name() + "." + meth.String()
 }
 
 func (r *Resource) Link(rel string, meth Method, routeParams []string) Link {
@@ -49,7 +215,7 @@ func (r *Resource) Link(rel string, meth Method, routeParams []string) Link {
 		Route:       r.Route(meth),
 		RouteParams: routeParams,
 		Method:      meth.HTTPMethod(),
-		Type:        r.rType,
+		Type:        r.Type,
 	}
 }
 
@@ -89,4 +255,41 @@ func validateResourceFunc(f interface{}, needType reflect.Type) (fVal reflect.Va
 		panic(fmt.Errorf("%#v and %#v not the same resource type", needType, returnType))
 	}
 	return fVal, returnType
+}
+
+func GenerateJava(dir string) error {
+	file, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	fs, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !fs.IsDir() {
+		return fmt.Errorf("generateJava requires a directory argument, %v is not a directory", dir)
+	}
+	classes := map[string]string{}
+	for _, res := range resources {
+		javaCode, err := res.toJavaInterface()
+		if err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%sService.java", res.Type.Name())), []byte(javaCode), 0666); err != nil {
+			return err
+		}
+		resClasses, err := res.toJavaClasses("")
+		if err != nil {
+			return err
+		}
+		for k, v := range resClasses {
+			classes[k] = v
+		}
+	}
+	for f, d := range classes {
+		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.java", f)), []byte(d), 0666); err != nil {
+			return err
+		}
+	}
+	return nil
 }

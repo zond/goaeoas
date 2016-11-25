@@ -231,62 +231,6 @@ func filterJSON(typ reflect.Type, m map[string]interface{}, method string) error
 
 type List []Content
 
-func createRoute(ro *mux.Router, re *Resource, meth Method, rType reflect.Type) reflect.Type {
-	var fVal reflect.Value
-	fVal, rType = validateResourceFunc(re.resourceFunc(meth), rType)
-	re.rType = rType
-	if re.CreatePath == "" {
-		re.CreatePath = fmt.Sprintf("/%s", rType.Name())
-	}
-	if re.FullPath == "" {
-		re.FullPath = fmt.Sprintf("%s/{id}", re.CreatePath)
-	}
-	pattern := ""
-	if meth == Create {
-		pattern = re.CreatePath
-	} else {
-		pattern = re.FullPath
-	}
-	Handle(
-		ro,
-		pattern,
-		[]string{
-			meth.HTTPMethod(),
-		},
-		re.Route(meth),
-		func(w ResponseWriter, r Request) error {
-			resultVals := fVal.Call([]reflect.Value{reflect.ValueOf(w), reflect.ValueOf(r)})
-			if !resultVals[1].IsNil() {
-				return resultVals[1].Interface().(error)
-			}
-			if !resultVals[0].IsNil() {
-				w.SetContent(resultVals[0].Interface().(Itemer).Item(r))
-			}
-			return nil
-		},
-	)
-	return rType
-}
-
-func HandleResource(ro *mux.Router, re *Resource) {
-	var rType reflect.Type
-	if re.Create != nil {
-		rType = createRoute(ro, re, Create, rType)
-	}
-	if re.Update != nil {
-		rType = createRoute(ro, re, Update, rType)
-	}
-	if re.Delete != nil {
-		rType = createRoute(ro, re, Delete, rType)
-	}
-	if re.Load != nil {
-		createRoute(ro, re, Load, rType)
-	}
-	for _, lister := range re.Listers {
-		Handle(ro, lister.Path, []string{"GET"}, lister.Route, lister.Handler)
-	}
-}
-
 func AddFilter(f func(ResponseWriter, Request) (bool, error)) {
 	filters = append(filters, f)
 }

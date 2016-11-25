@@ -1,10 +1,10 @@
 package goaeoas
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"reflect"
 	"strings"
 )
@@ -35,15 +35,126 @@ type JSONSchema struct {
 	Title                string                `json:"title,omitempty"`
 }
 
+func (d DocType) ToJavaClasses(meth string) (map[string]string, error) {
+	javaClasses := map[string]string{}
+	if err := d.populateJavaClasses(javaClasses, meth); err != nil {
+		return nil, err
+	}
+	return javaClasses, nil
+}
+
+func (d DocType) populateJavaClasses(javaClasses map[string]string, meth string) error {
+	if _, found := javaClasses[d.typ.Name()]; found {
+		return nil
+	}
+
+	buf := &bytes.Buffer{}
+	fmt.Fprintf(buf, `import retrofit2.http.*;
+	
+public class %s {
+`, d.typ.Name())
+
+	for _, field := range d.Fields {
+		javaType, err := d.javaTypeFor(javaClasses, field.field.Type, meth)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(buf, `  public %s %s;
+`, javaType, field.Name)
+	}
+
+	fmt.Fprintf(buf, "}")
+	javaClasses[d.typ.Name()] = buf.String()
+
+	javaClasses[fmt.Sprintf("%sContainer", d.typ.Name())] = fmt.Sprintf(`import retrofit2.http.*;
+	
+public class %sContainer {
+  public %s Properties;
+  public java.util.List<Link> Links;
+  public String name;
+  public java.util.List<java.util.List<String>> Desc;
+}`, d.typ.Name(), d.typ.Name())
+
+	javaClasses[fmt.Sprintf("%ssContainer", d.typ.Name())] = fmt.Sprintf(`import retrofit2.http.*;
+	
+public class %ssContainer {
+  public java.util.List<%s> Properties;
+  public java.util.List<Link> Links;
+  public String name;
+  public java.util.List<java.util.List<String>> Desc;
+}`, d.typ.Name(), d.typ.Name())
+
+	if _, found := javaClasses["Link"]; !found {
+		javaClasses["Link"] = `public class Link {
+  public String Rel;
+  public String URL;
+  public String Method;
+}`
+	}
+
+	return nil
+}
+
+func (d DocType) javaTypeFor(javaClasses map[string]string, t reflect.Type, meth string) (string, error) {
+	switch t.Kind() {
+	case reflect.Ptr:
+		if t == keyType {
+			return "String", nil
+		} else {
+			return "", fmt.Errorf("Untranslatable Go Type %v", t)
+		}
+	case reflect.Map:
+		javaKey, err := d.javaTypeFor(javaClasses, t.Key(), meth)
+		if err != nil {
+			return "", err
+		}
+		javaVal, err := d.javaTypeFor(javaClasses, t.Elem(), meth)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Map<%s,%s>", javaKey, javaVal), nil
+	case reflect.Bool:
+		return "Boolean", nil
+	case reflect.String:
+		return "String", nil
+	case reflect.Struct:
+		if t == timeType {
+			return "java.util.Date", nil
+		}
+		dt, err := NewDocType(t, meth)
+		if err != nil {
+			return "", err
+		}
+		if err := dt.populateJavaClasses(javaClasses, meth); err != nil {
+			return "", err
+		}
+		return t.Name(), nil
+	case reflect.Slice:
+		javaElem, err := d.javaTypeFor(javaClasses, t.Elem(), meth)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("java.util.List<%s>", javaElem), nil
+	case reflect.Int64:
+		fallthrough
+	case reflect.Int32:
+		fallthrough
+	case reflect.Int:
+		return "Long", nil
+	case reflect.Float64:
+		return "Double", nil
+	}
+	return "", fmt.Errorf("Untranslatable Go Type %v", t)
+}
+
 func (d DocType) ToJSONSchema() (*JSONSchema, error) {
 	schemaType := &JSONSchema{}
 	switch d.typ.Kind() {
 	case reflect.Ptr:
-		log.Printf("*** d.typ is %v, == %v => %v", d.typ, keyType, d.typ == keyType)
 		if d.typ == keyType {
 			schemaType.Type = "string"
 		} else {
-			return nil, fmt.Errorf("Untranslatable Go Kind %q", d.Kind)
+			return nil, fmt.Errorf("Untranslatable Go Type %v", d.typ)
 		}
 	case reflect.Map:
 		schemaType.Type = "object"
@@ -91,7 +202,7 @@ func (d DocType) ToJSONSchema() (*JSONSchema, error) {
 	case reflect.Float64:
 		schemaType.Type = "number"
 	default:
-		return nil, fmt.Errorf("Untranslatable Go Kind %q", d.Kind)
+		return nil, fmt.Errorf("Untranslatable Go Type %v", d.typ)
 	}
 	return schemaType, nil
 }
