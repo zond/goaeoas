@@ -275,7 +275,7 @@ func GenerateJava(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%sService.java", res.Type.Name())), []byte(javaCode), 0666); err != nil {
+		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%sService.java", res.Type.Name())), []byte(javaCode), 0644); err != nil {
 			return err
 		}
 		resClasses, err := res.toJavaClasses("")
@@ -287,7 +287,7 @@ func GenerateJava(dir string) error {
 		}
 	}
 	for f, d := range classes {
-		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.java", f)), []byte(d), 0666); err != nil {
+		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.java", f)), []byte(d), 0644); err != nil {
 			return err
 		}
 	}
