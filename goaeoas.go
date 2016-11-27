@@ -52,9 +52,7 @@ func (h HTTPErr) Error() string {
 
 func httpError(w http.ResponseWriter, r Request, body string, status int) {
 	if r.Media() == "application/json" {
-		b, err := json.Marshal(map[string]interface{}{
-			"Message": body,
-		})
+		b, err := json.Marshal(body)
 		if err != nil {
 			http.Error(w, body, 500)
 			return
