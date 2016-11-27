@@ -147,21 +147,23 @@ func (r *Resource) writeJavaMeth(meth Method, w io.Writer) error {
 	return nil
 }
 
-func (r *Resource) toJavaClasses(meth string) (map[string]string, error) {
+func (r *Resource) toJavaClasses(pkg, meth string) (map[string]string, error) {
 	docType, err := NewDocType(r.Type, meth)
 	if err != nil {
 		return nil, err
 	}
-	return docType.ToJavaClasses(meth)
+	return docType.ToJavaClasses(pkg, meth)
 }
 
-func (r *Resource) toJavaInterface() (string, error) {
+func (r *Resource) toJavaInterface(pkg string) (string, error) {
 	buf := &bytes.Buffer{}
-	fmt.Fprintf(buf, `import retrofit2.http.*;
+	fmt.Fprintf(buf, `package %s;
+	
+import retrofit2.http.*;
 import rx.*;
 	
 public interface %sService {
-`, r.Type.Name())
+`, pkg, r.Type.Name())
 	if r.Create != nil {
 		if err := r.writeJavaMeth(Create, buf); err != nil {
 			return "", err
@@ -257,7 +259,7 @@ func validateResourceFunc(f interface{}, needType reflect.Type) (fVal reflect.Va
 	return fVal, returnType
 }
 
-func GenerateJava(dir string) error {
+func GenerateJava(dir, pkg string) error {
 	file, err := os.Open(dir)
 	if err != nil {
 		return err
@@ -271,14 +273,14 @@ func GenerateJava(dir string) error {
 	}
 	classes := map[string]string{}
 	for _, res := range resources {
-		javaCode, err := res.toJavaInterface()
+		javaCode, err := res.toJavaInterface(pkg)
 		if err != nil {
 			return err
 		}
 		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%sService.java", res.Type.Name())), []byte(javaCode), 0644); err != nil {
 			return err
 		}
-		resClasses, err := res.toJavaClasses("")
+		resClasses, err := res.toJavaClasses(pkg, "")
 		if err != nil {
 			return err
 		}

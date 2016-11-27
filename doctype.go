@@ -35,27 +35,29 @@ type JSONSchema struct {
 	Title                string                `json:"title,omitempty"`
 }
 
-func (d DocType) ToJavaClasses(meth string) (map[string]string, error) {
+func (d DocType) ToJavaClasses(pkg, meth string) (map[string]string, error) {
 	javaClasses := map[string]string{}
-	if err := d.populateJavaClasses(javaClasses, meth); err != nil {
+	if err := d.populateJavaClasses(javaClasses, pkg, meth); err != nil {
 		return nil, err
 	}
 	return javaClasses, nil
 }
 
-func (d DocType) populateJavaClasses(javaClasses map[string]string, meth string) error {
+func (d DocType) populateJavaClasses(javaClasses map[string]string, pkg, meth string) error {
 	if _, found := javaClasses[d.typ.Name()]; found {
 		return nil
 	}
 
 	buf := &bytes.Buffer{}
-	fmt.Fprintf(buf, `import retrofit2.http.*;
+	fmt.Fprintf(buf, `package %s;
+
+import retrofit2.http.*;
 	
 public class %s {
-`, d.typ.Name())
+`, pkg, d.typ.Name())
 
 	for _, field := range d.Fields {
-		javaType, err := d.javaTypeFor(javaClasses, field.field.Type, meth)
+		javaType, err := d.javaTypeFor(javaClasses, field.field.Type, pkg, meth)
 		if err != nil {
 			return err
 		}
@@ -66,36 +68,42 @@ public class %s {
 	fmt.Fprintf(buf, "}")
 	javaClasses[d.typ.Name()] = buf.String()
 
-	javaClasses[fmt.Sprintf("%sContainer", d.typ.Name())] = fmt.Sprintf(`import retrofit2.http.*;
+	javaClasses[fmt.Sprintf("%sContainer", d.typ.Name())] = fmt.Sprintf(`package %s;
+	
+import retrofit2.http.*;
 	
 public class %sContainer {
   public %s Properties;
   public java.util.List<Link> Links;
   public String name;
   public java.util.List<java.util.List<String>> Desc;
-}`, d.typ.Name(), d.typ.Name())
+}`, pkg, d.typ.Name(), d.typ.Name())
 
-	javaClasses[fmt.Sprintf("%ssContainer", d.typ.Name())] = fmt.Sprintf(`import retrofit2.http.*;
+	javaClasses[fmt.Sprintf("%ssContainer", d.typ.Name())] = fmt.Sprintf(`package %s;
+	
+import retrofit2.http.*;
 	
 public class %ssContainer {
   public java.util.List<%s> Properties;
   public java.util.List<Link> Links;
   public String name;
   public java.util.List<java.util.List<String>> Desc;
-}`, d.typ.Name(), d.typ.Name())
+}`, pkg, d.typ.Name(), d.typ.Name())
 
 	if _, found := javaClasses["Link"]; !found {
-		javaClasses["Link"] = `public class Link {
+		javaClasses["Link"] = fmt.Sprintf(`package %s;
+		
+public class Link {
   public String Rel;
   public String URL;
   public String Method;
-}`
+}`, pkg)
 	}
 
 	return nil
 }
 
-func (d DocType) javaTypeFor(javaClasses map[string]string, t reflect.Type, meth string) (string, error) {
+func (d DocType) javaTypeFor(javaClasses map[string]string, t reflect.Type, pkg, meth string) (string, error) {
 	switch t.Kind() {
 	case reflect.Ptr:
 		if t == keyType {
@@ -104,11 +112,11 @@ func (d DocType) javaTypeFor(javaClasses map[string]string, t reflect.Type, meth
 			return "", fmt.Errorf("Untranslatable Go Type %v", t)
 		}
 	case reflect.Map:
-		javaKey, err := d.javaTypeFor(javaClasses, t.Key(), meth)
+		javaKey, err := d.javaTypeFor(javaClasses, t.Key(), pkg, meth)
 		if err != nil {
 			return "", err
 		}
-		javaVal, err := d.javaTypeFor(javaClasses, t.Elem(), meth)
+		javaVal, err := d.javaTypeFor(javaClasses, t.Elem(), pkg, meth)
 		if err != nil {
 			return "", err
 		}
@@ -125,12 +133,12 @@ func (d DocType) javaTypeFor(javaClasses map[string]string, t reflect.Type, meth
 		if err != nil {
 			return "", err
 		}
-		if err := dt.populateJavaClasses(javaClasses, meth); err != nil {
+		if err := dt.populateJavaClasses(javaClasses, pkg, meth); err != nil {
 			return "", err
 		}
 		return t.Name(), nil
 	case reflect.Slice:
-		javaElem, err := d.javaTypeFor(javaClasses, t.Elem(), meth)
+		javaElem, err := d.javaTypeFor(javaClasses, t.Elem(), pkg, meth)
 		if err != nil {
 			return "", err
 		}
