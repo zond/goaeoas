@@ -50,14 +50,27 @@ func (h HTTPErr) Error() string {
 	return fmt.Sprintf("%s: %d", h.Body, h.Status)
 }
 
-func HandleError(w http.ResponseWriter, err error) {
+func httpError(w http.ResponseWriter, r Request, body string, status int) {
+	if r.Media() == "application/json" {
+		b, err := json.Marshal(body)
+		if err != nil {
+			http.Error(w, body, 500)
+			return
+		}
+		http.Error(w, string(b), status)
+		return
+	}
+	http.Error(w, body, status)
+}
+
+func HandleError(w http.ResponseWriter, r Request, err error) {
 	if herr, ok := err.(HTTPErr); ok {
-		http.Error(w, herr.Body, herr.Status)
+		httpError(w, r, herr.Body, herr.Status)
 		return
 	}
 
 	if err == datastore.ErrNoSuchEntity {
-		http.Error(w, err.Error(), 404)
+		httpError(w, r, err.Error(), 404)
 		return
 	}
 
@@ -70,12 +83,12 @@ func HandleError(w http.ResponseWriter, err error) {
 			}
 		}
 		if only404 {
-			http.Error(w, err.Error(), 404)
+			httpError(w, r, err.Error(), 404)
 			return
 		}
 	}
 
-	http.Error(w, err.Error(), 500)
+	httpError(w, r, err.Error(), 500)
 }
 
 type Method int
@@ -299,7 +312,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 		for _, filter := range filters {
 			cont, err := filter(w, r)
 			if err != nil {
-				HandleError(httpW, err)
+				HandleError(httpW, r, err)
 				return
 			}
 			if !cont {
@@ -316,7 +329,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 			}
 		}
 		if err != nil {
-			HandleError(httpW, err)
+			HandleError(httpW, r, err)
 		}
 
 		if w.content != nil {
@@ -385,7 +398,7 @@ nav > a {
 				},
 			}[media]
 			if err := renderF(httpW); err != nil {
-				HandleError(httpW, err)
+				HandleError(httpW, r, err)
 			}
 		}
 	}).Name(routeName)
