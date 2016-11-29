@@ -84,7 +84,7 @@ public class %sContainer {
 import retrofit2.http.*;
 	
 public class %ssContainer {
-  public java.util.List<%s> Properties;
+  public java.util.List<%sContainer> Properties;
   public java.util.List<Link> Links;
   public String name;
   public java.util.List<java.util.List<String>> Desc;
