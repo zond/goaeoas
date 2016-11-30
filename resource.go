@@ -18,12 +18,15 @@ import (
 var (
 	pathElementReg = regexp.MustCompile("^([^{]*\\{)([^}]+)(\\}.*$)")
 	resources      = []*Resource{}
+	nonAlpha       = regexp.MustCompile("[^a-zA-Z0-9]")
 )
 
 type Lister struct {
 	Path    string
 	Route   string
 	Handler func(ResponseWriter, Request) error
+	// QueryParams document the query params this lister handles, and are only used when generating code or documentation.
+	QueryParams []string
 }
 
 type Resource struct {
@@ -97,7 +100,7 @@ func HandleResource(ro *mux.Router, re *Resource) {
 }
 
 func (r *Resource) writeJavaListerMeth(lister Lister, w io.Writer) error {
-	ms, err := r.methodSignature(Load, lister.Path, lister.Route, true)
+	ms, err := r.methodSignature(Load, lister.Path, lister.Route, true, lister.QueryParams)
 	if err != nil {
 		return err
 	}
@@ -108,16 +111,20 @@ func (r *Resource) writeJavaListerMeth(lister Lister, w io.Writer) error {
 	return nil
 }
 
-func (r *Resource) methodSignature(meth Method, pathTemplate string, route string, plural bool) (string, error) {
+func (r *Resource) methodSignature(meth Method, pathTemplate string, route string, plural bool, queryParams []string) (string, error) {
 	buf := &bytes.Buffer{}
 	args := []string{}
+	switch meth {
+	case Create:
+		args = append(args, fmt.Sprintf("@Body %s %s", r.Type.Name(), strings.ToLower(r.Type.Name())))
+	}
 	for match := pathElementReg.FindStringSubmatch(pathTemplate); match != nil; match = pathElementReg.FindStringSubmatch(pathTemplate) {
 		args = append(args, fmt.Sprintf("@Path(\"%s\") String %s", match[2], match[2]))
 		pathTemplate = match[3]
 	}
-	switch meth {
-	case Create:
-		args = append(args, fmt.Sprintf("@Body %s %s", r.Type.Name(), strings.ToLower(r.Type.Name())))
+	for _, qp := range queryParams {
+		saneQP := nonAlpha.ReplaceAllString(qp, "_")
+		args = append(args, fmt.Sprintf("@Query(%q) String %s", qp, saneQP))
 	}
 	methName := fmt.Sprintf("%s%s%s", r.Type.Name(), strings.ToUpper(string([]rune(meth.String())[0])), strings.ToLower(string([]rune(meth.String())[1:])))
 	if route != "" {
@@ -136,7 +143,7 @@ func (r *Resource) writeJavaMeth(meth Method, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ms, err := r.methodSignature(meth, pt, "", false)
+	ms, err := r.methodSignature(meth, pt, "", false, nil)
 	if err != nil {
 		return err
 	}
