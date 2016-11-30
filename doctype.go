@@ -68,28 +68,6 @@ public class %s {
 	fmt.Fprintf(buf, "}")
 	javaClasses[d.typ.Name()] = buf.String()
 
-	javaClasses[fmt.Sprintf("%sContainer", d.typ.Name())] = fmt.Sprintf(`package %s;
-	
-import retrofit2.http.*;
-	
-public class %sContainer {
-  public %s Properties;
-  public java.util.List<Link> Links;
-  public String name;
-  public java.util.List<java.util.List<String>> Desc;
-}`, pkg, d.typ.Name(), d.typ.Name())
-
-	javaClasses[fmt.Sprintf("%ssContainer", d.typ.Name())] = fmt.Sprintf(`package %s;
-	
-import retrofit2.http.*;
-	
-public class %ssContainer {
-  public java.util.List<%sContainer> Properties;
-  public java.util.List<Link> Links;
-  public String name;
-  public java.util.List<java.util.List<String>> Desc;
-}`, pkg, d.typ.Name(), d.typ.Name())
-
 	if _, found := javaClasses["Link"]; !found {
 		javaClasses["Link"] = fmt.Sprintf(`package %s;
 		
@@ -97,6 +75,32 @@ public class Link {
   public String Rel;
   public String URL;
   public String Method;
+}`, pkg)
+	}
+
+	if _, found := javaClasses["SingleContainer"]; !found {
+		javaClasses["SingleContainer"] = fmt.Sprintf(`package %s;
+		
+public class SingleContainer<T> {
+  public SingleContainer() {
+  }
+  public T Properties;
+  public java.util.List<Link> Links;
+  public String name;
+  public java.util.List<java.util.List<String>> Desc;
+}`, pkg)
+	}
+
+	if _, found := javaClasses["MultiContainer"]; !found {
+		javaClasses["MultiContainer"] = fmt.Sprintf(`package %s;
+		
+public class MultiContainer<T> {
+  public MultiContainer() {
+  }
+	public java.util.List<SingleContainer<T>> Properties;
+  public java.util.List<Link> Links;
+  public String name;
+  public java.util.List<java.util.List<String>> Desc;
 }`, pkg)
 	}
 

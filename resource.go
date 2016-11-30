@@ -130,11 +130,11 @@ func (r *Resource) methodSignature(meth Method, pathTemplate string, route strin
 	if route != "" {
 		methName = route
 	}
-	pluralChar := ""
 	if plural {
-		pluralChar = "s"
+		fmt.Fprintf(buf, "Observable<MultiContainer<%s>> %s(%s)", r.Type.Name(), methName, strings.Join(args, ", "))
+	} else {
+		fmt.Fprintf(buf, "Observable<SingleContainer<%s>> %s(%s)", r.Type.Name(), methName, strings.Join(args, ", "))
 	}
-	fmt.Fprintf(buf, "Observable<%s%sContainer> %s(%s)", r.Type.Name(), pluralChar, methName, strings.Join(args, ", "))
 	return buf.String(), nil
 }
 
