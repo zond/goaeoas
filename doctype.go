@@ -71,7 +71,7 @@ public class %s implements java.io.Serializable {
 	if _, found := javaClasses["Link"]; !found {
 		javaClasses["Link"] = fmt.Sprintf(`package %s;
 		
-public class Link {
+public class Link implements java.io.Serializable {
   public String Rel;
   public String URL;
   public String Method;
@@ -81,7 +81,7 @@ public class Link {
 	if _, found := javaClasses["SingleContainer"]; !found {
 		javaClasses["SingleContainer"] = fmt.Sprintf(`package %s;
 		
-public class SingleContainer<T> {
+public class SingleContainer<T> implements java.io.Serializable {
   public SingleContainer() {
   }
   public T Properties;
@@ -94,7 +94,7 @@ public class SingleContainer<T> {
 	if _, found := javaClasses["MultiContainer"]; !found {
 		javaClasses["MultiContainer"] = fmt.Sprintf(`package %s;
 		
-public class MultiContainer<T> {
+public class MultiContainer<T> implements java.io.Serializable {
   public MultiContainer() {
   }
 	public java.util.List<SingleContainer<T>> Properties;
