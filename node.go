@@ -1,6 +1,7 @@
 package goaeoas
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -25,6 +26,15 @@ func NewEl(s string, attrs ...string) *Node {
 		})
 	}
 	return elNode
+}
+
+func (n *Node) AddRaw(b []byte) (*Node, error) {
+	child, err := html.Parse(bytes.NewBuffer(b))
+	if err != nil {
+		return nil, err
+	}
+	n.Node.AppendChild(child)
+	return &Node{child}, nil
 }
 
 func (n *Node) AddText(s string) *Node {
