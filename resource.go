@@ -266,7 +266,27 @@ func validateResourceFunc(f interface{}, needType reflect.Type) (fVal reflect.Va
 	return fVal, returnType
 }
 
-func GenerateJava(dir, pkg string) error {
+func GenerateJava(pkg string) (map[string]string, error) {
+	classes := map[string]string{}
+	for _, res := range resources {
+		javaCode, err := res.toJavaInterface(pkg)
+		if err != nil {
+			return nil, err
+		}
+		classes[fmt.Sprintf("%sService.java", res.Type.Name())] = javaCode
+
+		resClasses, err := res.toJavaClasses(pkg, "")
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range resClasses {
+			classes[k] = v
+		}
+	}
+	return classes, nil
+}
+
+func DumpJava(dir string, classes map[string]string) error {
 	file, err := os.Open(dir)
 	if err != nil {
 		return err
@@ -277,23 +297,6 @@ func GenerateJava(dir, pkg string) error {
 	}
 	if !fs.IsDir() {
 		return fmt.Errorf("generateJava requires a directory argument, %v is not a directory", dir)
-	}
-	classes := map[string]string{}
-	for _, res := range resources {
-		javaCode, err := res.toJavaInterface(pkg)
-		if err != nil {
-			return err
-		}
-		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%sService.java", res.Type.Name())), []byte(javaCode), 0644); err != nil {
-			return err
-		}
-		resClasses, err := res.toJavaClasses(pkg, "")
-		if err != nil {
-			return err
-		}
-		for k, v := range resClasses {
-			classes[k] = v
-		}
 	}
 	for f, d := range classes {
 		if err := ioutil.WriteFile(filepath.Join(dir, fmt.Sprintf("%s.java", f)), []byte(d), 0644); err != nil {
