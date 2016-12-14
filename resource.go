@@ -273,7 +273,7 @@ func GenerateJava(pkg string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		classes[fmt.Sprintf("%sService.java", res.Type.Name())] = javaCode
+		classes[fmt.Sprintf("%sService", res.Type.Name())] = javaCode
 
 		resClasses, err := res.toJavaClasses(pkg, "")
 		if err != nil {
