@@ -117,6 +117,8 @@ func (r *Resource) methodSignature(meth Method, pathTemplate string, route strin
 	switch meth {
 	case Create:
 		args = append(args, fmt.Sprintf("@Body %s %s", r.Type.Name(), strings.ToLower(r.Type.Name())))
+	case Update:
+		args = append(args, fmt.Sprintf("@Body %s %s", r.Type.Name(), strings.ToLower(r.Type.Name())))
 	}
 	for match := pathElementReg.FindStringSubmatch(pathTemplate); match != nil; match = pathElementReg.FindStringSubmatch(pathTemplate) {
 		args = append(args, fmt.Sprintf("@Path(\"%s\") String %s", match[2], match[2]))
