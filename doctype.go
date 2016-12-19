@@ -57,7 +57,7 @@ public class %s implements java.io.Serializable {
 `, pkg, d.typ.Name())
 
 	for _, field := range d.Fields {
-		javaType, err := d.javaTypeFor(javaClasses, field.field.Type, pkg, meth)
+		javaType, err := d.javaTypeFor(javaClasses, field.field.Type, pkg, meth, field.field.Tag)
 		if err != nil {
 			return err
 		}
@@ -67,6 +67,44 @@ public class %s implements java.io.Serializable {
 
 	fmt.Fprintf(buf, "}")
 	javaClasses[d.typ.Name()] = buf.String()
+
+	if _, found := javaClasses["TickerUnserializer"]; !found {
+		javaClasses["TickerUnserializer"] = fmt.Sprintf(`package %s;
+
+import java.util.*;
+import com.google.gson.*;
+import java.lang.reflect.Type;
+	
+public class TickerUnserializer implements JsonDeserializer<Ticker> {
+  public Ticker deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+    return new Ticker(new Date(), json.getAsLong());
+  }
+}`, pkg)
+	}
+
+	if _, found := javaClasses["Ticker"]; !found {
+		javaClasses["Ticker"] = fmt.Sprintf(`package %s;
+	
+import java.util.*;
+		
+public class Ticker implements java.io.Serializable {
+  public Long nanos;
+  public Date unserializedAt;
+  public Ticker(Date unserializedAt, Long nanos) {
+    this.unserializedAt = unserializedAt;
+    this.nanos = nanos;
+  }
+  public Date deadlineAt() {
+		Calendar cal = Calendar.getInstance();
+		cal.setTime(unserializedAt);
+		cal.add(Calendar.MILLISECOND, (int) (nanos / (long) 1000000));
+		return cal.getTime();
+	}
+	public Long nanosLeft() {
+		return (long) (deadlineAt().getTime() - unserializedAt.getTime()) * (long) 1000000;
+	}
+}`, pkg)
+	}
 
 	if _, found := javaClasses["Link"]; !found {
 		javaClasses["Link"] = fmt.Sprintf(`package %s;
@@ -107,54 +145,68 @@ public class MultiContainer<T> implements java.io.Serializable {
 	return nil
 }
 
-func (d DocType) javaTypeFor(javaClasses map[string]string, t reflect.Type, pkg, meth string) (string, error) {
-	switch t.Kind() {
-	case reflect.Ptr:
-		if t == keyType {
-			return "String", nil
+func (d DocType) javaTypeFor(
+	javaClasses map[string]string,
+	t reflect.Type,
+	pkg, meth string,
+	tag reflect.StructTag) (string, error) {
+
+	switch t {
+	case durationType:
+		if tag.Get("ticker") != "" {
+			return "Ticker", nil
 		} else {
-			return "", fmt.Errorf("Untranslatable Go Type %v", t)
+			return "Long", nil
 		}
-	case reflect.Map:
-		javaKey, err := d.javaTypeFor(javaClasses, t.Key(), pkg, meth)
-		if err != nil {
-			return "", err
+	default:
+		switch t.Kind() {
+		case reflect.Ptr:
+			if t == keyType {
+				return "String", nil
+			} else {
+				return "", fmt.Errorf("Untranslatable Go Type %v", t)
+			}
+		case reflect.Map:
+			javaKey, err := d.javaTypeFor(javaClasses, t.Key(), pkg, meth, "")
+			if err != nil {
+				return "", err
+			}
+			javaVal, err := d.javaTypeFor(javaClasses, t.Elem(), pkg, meth, "")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Map<%s,%s>", javaKey, javaVal), nil
+		case reflect.Bool:
+			return "Boolean", nil
+		case reflect.String:
+			return "String", nil
+		case reflect.Struct:
+			if t == timeType {
+				return "java.util.Date", nil
+			}
+			dt, err := NewDocType(t, meth)
+			if err != nil {
+				return "", err
+			}
+			if err := dt.populateJavaClasses(javaClasses, pkg, meth); err != nil {
+				return "", err
+			}
+			return t.Name(), nil
+		case reflect.Slice:
+			javaElem, err := d.javaTypeFor(javaClasses, t.Elem(), pkg, meth, "")
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("java.util.List<%s>", javaElem), nil
+		case reflect.Int64:
+			fallthrough
+		case reflect.Int32:
+			fallthrough
+		case reflect.Int:
+			return "Long", nil
+		case reflect.Float64:
+			return "Double", nil
 		}
-		javaVal, err := d.javaTypeFor(javaClasses, t.Elem(), pkg, meth)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Map<%s,%s>", javaKey, javaVal), nil
-	case reflect.Bool:
-		return "Boolean", nil
-	case reflect.String:
-		return "String", nil
-	case reflect.Struct:
-		if t == timeType {
-			return "java.util.Date", nil
-		}
-		dt, err := NewDocType(t, meth)
-		if err != nil {
-			return "", err
-		}
-		if err := dt.populateJavaClasses(javaClasses, pkg, meth); err != nil {
-			return "", err
-		}
-		return t.Name(), nil
-	case reflect.Slice:
-		javaElem, err := d.javaTypeFor(javaClasses, t.Elem(), pkg, meth)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("java.util.List<%s>", javaElem), nil
-	case reflect.Int64:
-		fallthrough
-	case reflect.Int32:
-		fallthrough
-	case reflect.Int:
-		return "Long", nil
-	case reflect.Float64:
-		return "Double", nil
 	}
 	return "", fmt.Errorf("Untranslatable Go Type %v", t)
 }

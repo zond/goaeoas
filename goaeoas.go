@@ -39,6 +39,7 @@ var (
 	errorType          = reflect.TypeOf((*error)(nil)).Elem()
 	keyType            = reflect.TypeOf(&datastore.Key{})
 	timeType           = reflect.TypeOf(time.Now())
+	durationType       = reflect.TypeOf(time.Duration(0))
 )
 
 type HTTPErr struct {
