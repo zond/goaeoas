@@ -51,8 +51,13 @@ func (h HTTPErr) Error() string {
 	return fmt.Sprintf("%s: %d", h.Body, h.Status)
 }
 
-func httpError(w http.ResponseWriter, r Request, body string, status int) {
-	if r.Media() == "application/json" {
+func HTTPError(w http.ResponseWriter, r *http.Request, err error) {
+	media, _ := Media(r)
+	handleError(w, media, err)
+}
+
+func httpError(w http.ResponseWriter, media, body string, status int) {
+	if media == "application/json" {
 		b, err := json.Marshal(body)
 		if err != nil {
 			http.Error(w, body, 500)
@@ -65,13 +70,17 @@ func httpError(w http.ResponseWriter, r Request, body string, status int) {
 }
 
 func HandleError(w http.ResponseWriter, r Request, err error) {
+	handleError(w, r.Media(), err)
+}
+
+func handleError(w http.ResponseWriter, media string, err error) {
 	if herr, ok := err.(HTTPErr); ok {
-		httpError(w, r, herr.Body, herr.Status)
+		httpError(w, media, herr.Body, herr.Status)
 		return
 	}
 
 	if err == datastore.ErrNoSuchEntity {
-		httpError(w, r, err.Error(), 404)
+		httpError(w, media, err.Error(), 404)
 		return
 	}
 
@@ -84,12 +93,12 @@ func HandleError(w http.ResponseWriter, r Request, err error) {
 			}
 		}
 		if only404 {
-			httpError(w, r, err.Error(), 404)
+			httpError(w, media, err.Error(), 404)
 			return
 		}
 	}
 
-	httpError(w, r, err.Error(), 500)
+	httpError(w, media, err.Error(), 500)
 }
 
 type Method int
@@ -265,6 +274,24 @@ func SetJSVURL(u *url.URL) {
 	jsvURL = u
 }
 
+func Media(r *http.Request) (media, charset string) {
+	media, params, err := mime.ParseMediaType(r.Header.Get("Accept"))
+	if err != nil || media == "" || media == "*/*" {
+		media = "text/html"
+		params = map[string]string{
+			"charset": "utf-8",
+		}
+	}
+	if paramAccept := r.URL.Query().Get("accept"); paramAccept != "" {
+		media = paramAccept
+	}
+	if params["charset"] == "" {
+		params["charset"] = "utf-8"
+	}
+
+	return media, params["charset"]
+}
+
 func Handle(ro *mux.Router, pattern string, methods []string, routeName string, f func(ResponseWriter, Request) error) {
 	if router == nil {
 		router = ro
@@ -274,19 +301,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 	ro.Path(pattern).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
 		log.Printf("%v\t%v\t%v ->", httpR.Method, httpR.URL.String(), routeName)
 		CORSHeaders(httpW)
-		media, params, err := mime.ParseMediaType(httpR.Header.Get("Accept"))
-		if err != nil || media == "" || media == "*/*" {
-			media = "text/html"
-			params = map[string]string{
-				"charset": "utf-8",
-			}
-		}
-		if paramAccept := httpR.URL.Query().Get("accept"); paramAccept != "" {
-			media = paramAccept
-		}
-		if params["charset"] == "" {
-			params["charset"] = "utf-8"
-		}
+		media, charset := Media(httpR)
 
 		if !map[string]bool{
 			"text/html":        true,
@@ -295,7 +310,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 			http.Error(httpW, "only accepts text/hml or application/json requests", 406)
 			return
 		}
-		if strings.ToLower(params["charset"]) != "utf-8" {
+		if strings.ToLower(charset) != "utf-8" {
 			http.Error(httpW, "only accepts utf-8 requests", 406)
 			return
 		}
@@ -321,7 +336,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 			}
 		}
 
-		err = f(w, r)
+		err := f(w, r)
 		cont := false
 		for _, postProc := range postProcs {
 			cont, err = postProc(w, r, err)
