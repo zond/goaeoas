@@ -52,7 +52,7 @@ func (h HTTPErr) Error() string {
 }
 
 func HTTPError(w http.ResponseWriter, r *http.Request, err error) {
-	media, _ := Media(r)
+	media, _ := Media(r, "Accept")
 	handleError(w, media, err)
 }
 
@@ -212,11 +212,8 @@ type Itemer interface {
 type Properties interface{}
 
 func Copy(dest interface{}, r Request, method string) error {
-	media, params, err := mime.ParseMediaType(r.Req().Header.Get("Content-Type"))
-	if err != nil {
-		return err
-	}
-	if charset := params["charset"]; strings.ToLower(charset) != "utf-8" && charset != "" {
+	media, charset := Media(r.Req(), "Content-Type")
+	if strings.ToLower(charset) != "utf-8" && charset != "" {
 		return fmt.Errorf("unsupported character set %v", charset)
 	}
 	switch media {
@@ -274,8 +271,8 @@ func SetJSVURL(u *url.URL) {
 	jsvURL = u
 }
 
-func Media(r *http.Request) (media, charset string) {
-	media, params, err := mime.ParseMediaType(r.Header.Get("Accept"))
+func Media(r *http.Request, header string) (media, charset string) {
+	media, params, err := mime.ParseMediaType(r.Header.Get(header))
 	if err != nil || media == "" || media == "*/*" {
 		media = "text/html"
 		params = map[string]string{
@@ -301,7 +298,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 	ro.Path(pattern).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
 		log.Printf("%v\t%v\t%v ->", httpR.Method, httpR.URL.String(), routeName)
 		CORSHeaders(httpW)
-		media, charset := Media(httpR)
+		media, charset := Media(httpR, "Accept")
 
 		if !map[string]bool{
 			"text/html":        true,
