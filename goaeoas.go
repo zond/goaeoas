@@ -57,6 +57,7 @@ func HTTPError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func httpError(w http.ResponseWriter, media, body string, status int) {
+	log.Printf("Returning %v; %v", status, body)
 	if media == "application/json" {
 		b, err := json.Marshal(body)
 		if err != nil {
