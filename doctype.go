@@ -94,6 +94,12 @@ public class Ticker implements java.io.Serializable {
     this.unserializedAt = unserializedAt;
     this.nanos = nanos;
   }
+  public Date createdAt() {
+		Calendar cal = Calendar.getInstance();
+		cal.setTime(unserializedAt);
+		cal.add(Calendar.MILLISECOND, (int) (nanos / (long) -1000000));
+		return cal.getTime();
+	}
   public Date deadlineAt() {
 		Calendar cal = Calendar.getInstance();
 		cal.setTime(unserializedAt);
