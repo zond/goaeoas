@@ -3,6 +3,7 @@ package goaeoas
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"mime"
 	"net/http"
@@ -213,13 +214,21 @@ type Itemer interface {
 type Properties interface{}
 
 func Copy(dest interface{}, r Request, method string) error {
+	b, err := ioutil.ReadAll(r.Req().Body)
+	if err != nil {
+		return err
+	}
+	return CopyBytes(dest, r, b, method)
+}
+
+func CopyBytes(dest interface{}, r Request, b []byte, method string) error {
 	media, charset := Media(r.Req(), "Content-Type")
 	if strings.ToLower(charset) != "utf-8" && charset != "" {
 		return fmt.Errorf("unsupported character set %v", charset)
 	}
 	switch media {
 	case "application/json":
-		return copyJSON(dest, r.Req().Body, method)
+		return copyJSON(dest, b, method)
 	}
 	return fmt.Errorf("unsupported Content-Type %v", media)
 }

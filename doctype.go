@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"reflect"
 	"strings"
 )
@@ -355,9 +354,9 @@ func NewDocType(typ reflect.Type, method string) (*DocType, error) {
 	return result, nil
 }
 
-func copyJSON(dest interface{}, r io.Reader, method string) error {
+func copyJSON(dest interface{}, b []byte, method string) error {
 	decoded := map[string]interface{}{}
-	if err := json.NewDecoder(r).Decode(&decoded); err != nil {
+	if err := json.Unmarshal(b, &decoded); err != nil {
 		return err
 	}
 	val := reflect.ValueOf(dest)
