@@ -429,6 +429,6 @@ nav > a {
 
 func CORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS, PATCH")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
 }
