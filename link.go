@@ -36,6 +36,7 @@ type Link struct {
 
 	Rel         string
 	Route       string
+	URL         string
 	RouteParams []string
 	QueryParams url.Values
 	Method      string
@@ -43,6 +44,9 @@ type Link struct {
 }
 
 func (l *Link) Resolve() (string, error) {
+	if l.URL != "" {
+		return l.URL, nil
+	}
 	u, err := router.Get(l.Route).URL(l.RouteParams...)
 	if err != nil {
 		return "", err
