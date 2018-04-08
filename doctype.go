@@ -56,12 +56,14 @@ public class %s implements java.io.Serializable {
 `, pkg, d.typ.Name())
 
 	for _, field := range d.Fields {
-		javaType, err := d.javaTypeFor(javaClasses, field.field.Type, pkg, meth, field.field.Tag)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(buf, `  public %s %s;
+		if field.field.Tag.Get("skip") == "" {
+			javaType, err := d.javaTypeFor(javaClasses, field.field.Type, pkg, meth, field.field.Tag)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(buf, `  public %s %s;
 `, javaType, field.Name)
+		}
 	}
 
 	fmt.Fprintf(buf, "}")
