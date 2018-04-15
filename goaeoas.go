@@ -261,10 +261,20 @@ func filterJSON(typ reflect.Type, m map[string]interface{}, method string) error
 
 type List []Content
 
+// Filters are run before the request handlers, and any
+// filter returning false or an error will stop the handler
+// from running.
+// Returned errors will get forwarded to the client.
 func AddFilter(f func(ResponseWriter, Request) (bool, error)) {
 	filters = append(filters, f)
 }
 
+// PostProcs are run in sequence after the request handler.
+// The first proc receives the error returned by the handler,
+// and all consecutive procs get the error returned by the
+// previous proc.
+// Any proc returning false will stop further procs from running.
+// The final returned error will be forwarded to the client.
 func AddPostProc(f func(ResponseWriter, Request, error) (bool, error)) {
 	postProcs = append(postProcs, f)
 }
