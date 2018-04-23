@@ -420,6 +420,11 @@ nav {
 nav > a {
 	margin: 5pt;
 }
+fieldset.control-group {
+	border: 4px outset;
+	padding: 5pt;
+	margin: 5pt;
+}
 `)
 					htmlNode.AddEl("body").AddNode(contentNode)
 					httpW.Header().Set("Content-Type", "text/html; charset=UTF-8")
