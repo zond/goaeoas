@@ -39,7 +39,8 @@ type Resource struct {
 	FullPath   string
 	CreatePath string
 
-	Type reflect.Type
+	Type        reflect.Type
+	RenderLinks bool
 }
 
 func createRoute(ro *mux.Router, re *Resource, meth Method, rType reflect.Type) reflect.Type {
@@ -227,6 +228,7 @@ func (r *Resource) Link(rel string, meth Method, routeParams []string) Link {
 		RouteParams: routeParams,
 		Method:      meth.HTTPMethod(),
 		Type:        r.Type,
+		Render:      r.RenderLinks,
 	}
 }
 

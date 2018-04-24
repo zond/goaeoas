@@ -41,6 +41,7 @@ type Link struct {
 	QueryParams url.Values
 	Method      string
 	Type        reflect.Type
+	Render      bool
 }
 
 func (l *Link) Resolve() (string, error) {
@@ -94,6 +95,7 @@ func (l *Link) HTMLNode() (*Node, error) {
 		if err != nil {
 			return nil, err
 		}
+		resultID := atomic.AddUint64(&nextElementID, 1)
 		linkNode.AddEl("script").AddText(fmt.Sprintf(`
 $('#%s').jsonForm({
   schema: %s,
@@ -109,6 +111,10 @@ $('#%s').jsonForm({
 		req.addEventListener("readystatechange", function(ev) {
 			if (req.readyState == 4) {
 				if (req.status > 199 && req.status < 300) {
+					if ('%v' == 'true') {
+						$('body').append('<section><header>Result</header><article id="result%d"></article></section>');
+						$('#result%d').html(req.response);
+					}
 					alert("done");
 				} else {
 					alert(req.responseText);
@@ -121,7 +127,7 @@ $('#%s').jsonForm({
 		return false;
 	}
 });
-`, formID, schemaJSON, l.Rel, l.Method, u))
+`, formID, schemaJSON, l.Rel, l.Render, resultID, resultID, l.Method, u))
 		return linkNode, nil
 	}
 	linkNode := NewEl("div")
