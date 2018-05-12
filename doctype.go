@@ -170,6 +170,15 @@ func (d DocType) javaTypeFor(
 		case reflect.Ptr:
 			if t == keyType {
 				return "String", nil
+			} else if t.Elem().Kind() == reflect.Struct {
+				dt, err := NewDocType(t.Elem(), meth)
+				if err != nil {
+					return "", err
+				}
+				if err := dt.populateJavaClasses(javaClasses, pkg, meth); err != nil {
+					return "", err
+				}
+				return t.Elem().Name(), nil
 			} else {
 				return "", fmt.Errorf("Untranslatable Go Type %v", t)
 			}
@@ -224,6 +233,20 @@ func (d DocType) ToJSONSchema() (*JSONSchema, error) {
 	case reflect.Ptr:
 		if d.typ == keyType {
 			schemaType.Type = "string"
+		} else if d.typ.Elem().Kind() == reflect.Struct {
+			schemaType.Type = "object"
+			schemaType.Properties = map[string]JSONSchema{}
+			fields, err := NewDocFields(d.typ.Elem(), d.method)
+			if err != nil {
+				return nil, err
+			}
+			for _, field := range fields {
+				s, err := field.ToJSONSchema()
+				if err != nil {
+					return nil, err
+				}
+				schemaType.Properties[field.Name] = *s
+			}
 		} else {
 			return nil, fmt.Errorf("Untranslatable Go Type %v", d.typ)
 		}
