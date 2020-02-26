@@ -41,6 +41,8 @@ var (
 	keyType            = reflect.TypeOf(&datastore.Key{})
 	timeType           = reflect.TypeOf(time.Now())
 	durationType       = reflect.TypeOf(time.Duration(0))
+
+	DefaultScheme = "http"
 )
 
 type HTTPErr struct {
@@ -171,11 +173,7 @@ func (r *request) DecorateLinks(f LinkDecorator) {
 
 func (r *request) NewLink(l Link) Link {
 	rval := l
-	if r.Req().TLS == nil {
-		rval.baseScheme = "http"
-	} else {
-		rval.baseScheme = "https"
-	}
+	rval.baseScheme = DefaultScheme
 	rval.baseHost = r.Req().Host
 	rval.linkDecorators = r.linkDecorators
 	return rval
