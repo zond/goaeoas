@@ -314,7 +314,7 @@ func Handle(ro *mux.Router, pattern string, methods []string, routeName string, 
 	} else if router != ro {
 		panic("only one *mux.Router allowed")
 	}
-	ro.Path(pattern).Schemes(DefaultScheme).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
+	ro.Path(pattern).Methods(methods...).HandlerFunc(func(httpW http.ResponseWriter, httpR *http.Request) {
 		log.Printf("%v\t%v\t%v ->", httpR.Method, httpR.URL.String(), routeName)
 		CORSHeaders(httpW)
 		media, charset := Media(httpR, "Accept")
