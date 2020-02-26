@@ -42,6 +42,7 @@ var (
 	timeType           = reflect.TypeOf(time.Now())
 	durationType       = reflect.TypeOf(time.Duration(0))
 
+	// DefaultScheme is used to construct URLs, not to match them, since App Engine forwards HTTPS requests as HTTP requests.
 	DefaultScheme = "http"
 )
 
