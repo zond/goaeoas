@@ -89,16 +89,12 @@ func init() {
 }
 
 func TestToJava(t *testing.T) {
-	java, err := userResource.ToJavaInterface()
+	_, err := userResource.toJavaInterface("user")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("Creating Java from the user resource:\n%s", java)
-	classes, err := userResource.ToJavaClasses("")
+	_, err = userResource.toJavaClasses("user", "")
 	if err != nil {
 		t.Fatal(err)
-	}
-	for n, s := range classes {
-		t.Logf("Creating Java from %q:\n%s", n, s)
 	}
 }

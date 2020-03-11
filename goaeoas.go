@@ -43,7 +43,8 @@ var (
 	durationType       = reflect.TypeOf(time.Duration(0))
 
 	// DefaultScheme is used to construct URLs, not to match them, since App Engine forwards HTTPS requests as HTTP requests.
-	DefaultScheme = "http"
+	DefaultScheme    = "http"
+	CORSAllowHeaders = []string{"Content-Type", "Accept", "Authorization"}
 )
 
 type HTTPErr struct {
@@ -444,5 +445,5 @@ fieldset.control-group {
 func CORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, CONNECT, OPTIONS, PATCH")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", strings.Join(CORSAllowHeaders, ", "))
 }

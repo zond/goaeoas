@@ -1,7 +1,6 @@
 package goaeoas
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -157,14 +156,14 @@ var (
 
 func TestCopyJSON(t *testing.T) {
 	outer := &Outer{}
-	if err := copyJSON(outer, bytes.NewBufferString(data), "POST"); err != nil {
+	if err := copyJSON(outer, []byte(data), "POST"); err != nil {
 		t.Fatal(err)
 	}
 	if diff := pretty.Diff(outer, expectedPOSTOuter); len(diff) > 0 {
 		t.Errorf("Wrong copy result, got %v, want %v; diff %v", spew.Sdump(outer), spew.Sdump(expectedPOSTOuter), spew.Sdump(diff))
 	}
 	outer = &Outer{}
-	if err := copyJSON(outer, bytes.NewBufferString(data), "PUT"); err != nil {
+	if err := copyJSON(outer, []byte(data), "PUT"); err != nil {
 		t.Fatal(err)
 	}
 	if diff := pretty.Diff(outer, expectedPUTOuter); len(diff) > 0 {
