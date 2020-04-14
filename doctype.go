@@ -180,7 +180,7 @@ func (d DocType) javaTypeFor(
 				}
 				return t.Elem().Name(), nil
 			} else {
-				return "", fmt.Errorf("Untranslatable Go Type %v", t)
+				return "", fmt.Errorf("%+v found untranslatable Go Type %v", d, t)
 			}
 		case reflect.Map:
 			javaKey, err := d.javaTypeFor(javaClasses, t.Key(), pkg, meth, "")
