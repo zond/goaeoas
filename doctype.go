@@ -51,6 +51,7 @@ func (d DocType) populateJavaClasses(javaClasses map[string]string, pkg, meth st
 	fmt.Fprintf(buf, `package %s;
 
 import retrofit2.http.*;
+import java.util.*;
 	
 public class %s implements java.io.Serializable {
 `, pkg, d.typ.Name())
