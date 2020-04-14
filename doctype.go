@@ -224,7 +224,7 @@ func (d DocType) javaTypeFor(
 			return "Double", nil
 		}
 	}
-	return "", fmt.Errorf("Untranslatable Go Type %v", t)
+	return "", fmt.Errorf("%+v found untranslatable Go Type %v", d, t)
 }
 
 func (d DocType) ToJSONSchema() (*JSONSchema, error) {
@@ -248,7 +248,7 @@ func (d DocType) ToJSONSchema() (*JSONSchema, error) {
 				schemaType.Properties[field.Name] = *s
 			}
 		} else {
-			return nil, fmt.Errorf("Untranslatable Go Type %v", d.typ)
+			return nil, fmt.Errorf("%+v is untranslatable Go Type %v", d, d.typ)
 		}
 	case reflect.Map:
 		schemaType.Type = "object"
@@ -296,7 +296,7 @@ func (d DocType) ToJSONSchema() (*JSONSchema, error) {
 	case reflect.Float64:
 		schemaType.Type = "number"
 	default:
-		return nil, fmt.Errorf("Untranslatable Go Type %v", d.typ)
+		return nil, fmt.Errorf("%+v is untranslatable Go Type %v", d, d.typ)
 	}
 	return schemaType, nil
 }
