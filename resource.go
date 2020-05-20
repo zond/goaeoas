@@ -167,6 +167,7 @@ func (r *Resource) toJavaClasses(pkg, meth string) (map[string]string, error) {
 
 func (r *Resource) toJavaInterface(pkg string) (string, error) {
 	buf := &bytes.Buffer{}
+	fmt.Printf("toJavaInterface for %+v\n", r)
 	fmt.Fprintf(buf, `package %s;
 	
 import retrofit2.http.*;
