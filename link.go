@@ -83,7 +83,7 @@ func (l *Link) HTMLNode() (*Node, error) {
 			return nil, err
 		}
 	}
-	if (l.Method == "DELETE" || l.Method == "POST" || l.Method == "PUT") && docType != nil && len(docType.Fields) > 0 {
+	if (l.Method == "POST" || l.Method == "PUT") && docType != nil && len(docType.Fields) > 0 {
 		linkNode := NewEl("div")
 		formID := fmt.Sprintf("form%d", atomic.AddUint64(&nextElementID, 1))
 		linkNode.AddEl("form", "id", formID)
