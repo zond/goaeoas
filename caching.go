@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"google.golang.org/appengine"
+	"google.golang.org/appengine/v2"
 )
 
 func VersionETagCache(handler func(ResponseWriter, Request) error) func(ResponseWriter, Request) error {
